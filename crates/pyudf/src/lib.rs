@@ -66,5 +66,8 @@ unsafe fn register_functions(
             .register(con)?;
     }
 
+    // ── Check PYUD_VENV env var on load ──
+    python::venv::check_env_venv();
+
     Ok(())
 }
