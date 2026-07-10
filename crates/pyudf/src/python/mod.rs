@@ -2,7 +2,10 @@
 
 pub mod aggregate;
 pub mod bridge;
+pub mod map;
+pub mod registry;
 pub mod scalar;
+pub mod subinterpreter;
 pub mod table;
 pub mod venv;
 
@@ -13,3 +16,7 @@ mod bridge_tests;
 #[cfg(test)]
 #[path = "aggregate_tests.rs"]
 mod aggregate_tests;
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod registry_tests;

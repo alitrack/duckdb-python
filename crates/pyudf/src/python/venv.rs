@@ -1,6 +1,6 @@
 //! Python virtual environment support.
 //!
-//! Provides `py_set_venv(path)` to activate a Python venv by adding
+//! Provides `py_activate_venv(path)` to activate a Python venv by adding
 //! its site-packages to sys.path. Also checks PYUD_VENV env var at load.
 
 use std::ffi::CString;
@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use pyo3::prelude::*;
 use quack_rs::error::ExtensionError;
+use quack_rs::vector::{VectorReader, VectorWriter};
 
 static VENV_PATH: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
@@ -40,7 +41,10 @@ pub fn activate_venv(path: &str) -> Result<(), ExtensionError> {
                 _ => continue,
             }
         }
-        Err(ExtensionError::new(format!("No site-packages found in {}", path)))
+        Err(ExtensionError::new(format!(
+            "No site-packages found in {}",
+            path
+        )))
     })
 }
 
@@ -53,7 +57,51 @@ pub fn check_env_venv() {
     }
 }
 
+/// `py_activate_venv(path VARCHAR) → VARCHAR`
+///
+/// Activates a Python virtual environment at the given path.
+/// Returns 'OK' on success, or an error message on failure.
+///
+/// ```sql
+/// SELECT py_activate_venv('/home/user/.venv');
+/// SET py_venv = '/home/user/.venv';   -- DuckDB config (for current_setting)
+/// ```
+#[no_mangle]
+pub unsafe extern "C" fn py_activate_venv(
+    _info: libduckdb_sys::duckdb_function_info,
+    input: libduckdb_sys::duckdb_data_chunk,
+    output: libduckdb_sys::duckdb_vector,
+) {
+    let reader = unsafe { VectorReader::new(input, 0) };
+    let row_count = reader.row_count();
+
+    let path = if unsafe { reader.is_valid(0) } {
+        unsafe { reader.read_str(0) }
+    } else {
+        let mut writer = unsafe { VectorWriter::new(output) };
+        for row in 0..row_count {
+            unsafe {
+                writer.set_null(row);
+            }
+        }
+        return;
+    };
+
+    let mut writer = unsafe { VectorWriter::new(output) };
+    for row in 0..row_count {
+        match activate_venv(path) {
+            Ok(()) => unsafe {
+                writer.write_varchar(row, "OK");
+            },
+            Err(e) => unsafe {
+                writer.write_varchar(row, &format!("ERROR: {}", e));
+            },
+        }
+    }
+}
+
 /// Get current venv path (for testing).
+#[allow(dead_code)]
 pub fn get_venv_path() -> Option<String> {
     VENV_PATH.lock().unwrap().clone()
 }
