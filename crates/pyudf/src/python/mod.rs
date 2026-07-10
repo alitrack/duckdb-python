@@ -1,10 +1,13 @@
-//! Python interpreter bridge — embeds CPython via PyO3.
+//! Python bridge module — organizes the Python/DuckDB integration.
 //!
-//! The `pyudf` extension initializes one CPython interpreter per DuckDB
-//! connection (via Python subinterpreters, PEP 684), keeping GIL contention
-//! minimal and enabling true multi-connection concurrency.
+//! - `bridge.rs` — CPython lifecycle, expression cache, error conversion
+//! - `scalar.rs` — py_eval scalar function
+//! - `aggregate.rs` — Python aggregate functions (planned)
+//! - `table.rs` — py_scan table function (planned)
 
+pub mod bridge;
 pub mod scalar;
-// pub mod aggregate;
-// pub mod table;
-// pub mod venv;
+
+#[cfg(test)]
+#[path = "bridge_tests.rs"]
+mod bridge_tests;

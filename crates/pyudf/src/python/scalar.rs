@@ -1,20 +1,18 @@
-//! Python scalar functions — called once per DataChunk (2048 rows).
+//! Python scalar functions — py_eval().
 //!
-//! Each call receives the full chunk as a PyArrow Array via zero-copy
-//! pointer handoff, runs the user's Python callable, and writes results
-//! back to the DuckDB output vector.
+//! The `py_eval` function receives two columns from DuckDB:
+//! - Column 0: Python expression (constant — read once)
+//! - Column 1: Input values (processed row by row)
+//!
+//! Each row's value is passed to the Python expression as variable `x`.
 
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
-
+use super::bridge::{ensure_initialized, eval_py_expr};
 use libduckdb_sys as ffi;
 use quack_rs::vector::{VectorReader, VectorWriter};
-use quack_rs::types::TypeId;
 
-/// `py_eval(expression VARCHAR, input VARCHAR) → VARCHAR`
+/// `py_eval(expression VARCHAR, value VARCHAR) → VARCHAR`
 ///
-/// Evaluates a Python expression against each input row.
-/// The expression is compiled once (lazily) and cached per connection.
+/// Evaluates a Python expression with each input row bound to `x`.
 ///
 /// ```sql
 /// SELECT py_eval('x.upper()', name) FROM users;
@@ -26,19 +24,39 @@ pub unsafe extern "C" fn py_eval(
     input: ffi::duckdb_data_chunk,
     output: ffi::duckdb_vector,
 ) {
-    // TODO: Implement Python interpreter init + expression evaluation
-    // Phase 1 stub: identity passthrough for now
-    let reader = unsafe { VectorReader::new(input, 1) }; // arg 1 = input column
+    // Column 0: expression (constant — read first row only)
+    let expr_reader = unsafe { VectorReader::new(input, 0) };
+    let row_count = expr_reader.row_count();
+
+    let expr = if unsafe { expr_reader.is_valid(0) } {
+        unsafe { expr_reader.read_str(0) }
+    } else {
+        // Empty expression → all NULL
+        let mut writer = unsafe { VectorWriter::new(output) };
+        for row in 0..row_count {
+            unsafe { writer.set_null(row) };
+        }
+        return;
+    };
+
+    // Ensure Python is initialized
+    let _ = ensure_initialized();
+
+    // Column 1: input values
+    let val_reader = unsafe { VectorReader::new(input, 1) };
     let mut writer = unsafe { VectorWriter::new(output) };
-    let row_count = reader.row_count();
 
     for row in 0..row_count {
-        if !unsafe { reader.is_valid(row) } {
+        if !unsafe { val_reader.is_valid(row) } {
             unsafe { writer.set_null(row) };
             continue;
         }
-        let s = unsafe { reader.read_str(row) };
-        // Stub: passthrough. Will become: call Python expression
-        unsafe { writer.write_varchar(row, s) };
+
+        let value = unsafe { val_reader.read_str(row) };
+
+        match eval_py_expr(expr, value) {
+            Ok(result) => unsafe { writer.write_varchar(row, &result) },
+            Err(_) => unsafe { writer.set_null(row) },
+        }
     }
 }
