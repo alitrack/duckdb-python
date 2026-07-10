@@ -3,6 +3,7 @@
 pub mod aggregate;
 pub mod bridge;
 pub mod scalar;
+pub mod table;
 
 #[cfg(test)]
 #[path = "bridge_tests.rs"]

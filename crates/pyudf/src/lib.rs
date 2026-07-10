@@ -7,6 +7,7 @@ use quack_rs::aggregate::AggregateFunctionBuilder;
 use quack_rs::entry_point::init_extension;
 use quack_rs::error::ExtensionError;
 use quack_rs::scalar::ScalarFunctionBuilder;
+use quack_rs::table::TableFunctionBuilder;
 use quack_rs::types::TypeId;
 
 mod python;
@@ -51,6 +52,17 @@ unsafe fn register_functions(
             .combine(python::aggregate::py_agg_combine)
             .finalize(python::aggregate::py_agg_finalize)
             .destructor(python::aggregate::py_agg_destroy)
+            .register(con)?;
+    }
+
+    // ── Table: py_scan(module VARCHAR, func VARCHAR) → TABLE(...) ──
+    unsafe {
+        TableFunctionBuilder::new("py_scan")
+            .param(TypeId::Varchar)
+            .param(TypeId::Varchar)
+            .bind(python::table::py_scan_bind)
+            .init(python::table::py_scan_init)
+            .scan(python::table::py_scan_scan)
             .register(con)?;
     }
 
