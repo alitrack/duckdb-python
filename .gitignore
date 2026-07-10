@@ -1,0 +1,6 @@
+/target
+/openspec
+Cargo.lock
+*.so
+*.dylib
+*.dll
