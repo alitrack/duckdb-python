@@ -1,0 +1,41 @@
+.PHONY: all configure debug release test test_debug test_release unit-test smoke-test clean clean_all
+
+PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+EXTENSION_NAME=pyudf
+
+# pyudf uses quack-rs modules gated behind DuckDB 1.5 APIs (e.g. config options),
+# so package binaries for a concrete DuckDB 1.5 release.
+USE_UNSTABLE_C_API=1
+TARGET_DUCKDB_VERSION=v1.5.4
+DUCKDB_TEST_VERSION=1.5.4
+EXTENSION_VERSION=0.1.0
+
+# Prefer a shared-library Python 3.12 on macOS so PyO3 links cleanly.
+# Override in the environment if your Python lives elsewhere.
+PYO3_PYTHON ?= $(shell if [ -x /opt/homebrew/bin/python3.12 ]; then echo /opt/homebrew/bin/python3.12; elif [ -x /usr/local/bin/python3.12 ]; then echo /usr/local/bin/python3.12; else command -v python3; fi)
+PYTHON_BIN ?= $(PYO3_PYTHON)
+export PYO3_PYTHON
+
+all: configure debug
+
+include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
+include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
+
+configure: venv platform extension_version
+
+debug: build_extension_library_debug build_extension_with_metadata_debug
+release: build_extension_library_release build_extension_with_metadata_release
+
+test: test_release
+test_debug: test_extension_debug
+test_release: test_extension_release
+
+unit-test:
+	cargo test --lib
+
+smoke-test: release
+	$(PYTHON_VENV_BIN) -c "import duckdb; con = duckdb.connect(config={'allow_unsigned_extensions': 'true'}); con.execute(\"LOAD 'build/release/extension/pyudf/pyudf.duckdb_extension'\"); print(con.execute(\"SELECT py_eval('x.upper()', 'hello')\").fetchall()); print(con.execute(\"SELECT py_register('double_it', 'str(int(x)*2)', 1)\").fetchall()); print(con.execute(\"SELECT py_call('double_it', '21')\").fetchall())"
+
+clean: clean_build clean_rust
+clean_all: clean_configure clean

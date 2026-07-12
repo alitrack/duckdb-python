@@ -1,0 +1,25 @@
+# name: test/sql/pyudf.test
+# description: smoke tests for the pyudf extension
+# group: [pyudf]
+
+statement error
+SELECT py_eval('x.upper()', 'sam');
+----
+Catalog Error: Scalar Function with name py_eval does not exist!
+
+require pyudf
+
+query T
+SELECT py_eval('x.upper()', 'sam');
+----
+SAM
+
+query T
+SELECT py_register('double_it', 'str(int(x)*2)', 1);
+----
+OK
+
+query T
+SELECT py_call('double_it', '21');
+----
+42

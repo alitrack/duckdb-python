@@ -1,0 +1,14 @@
+extension:
+  name: pyudf
+  description: "Embedded CPython UDFs for DuckDB: py_eval, py_agg, py_scan, py_register, and py_call."
+  version: 0.1.0
+  language: Rust
+  build: cargo
+  license: MIT
+  requires_toolchains: rust;python3
+  maintainers:
+    - alitrack
+
+repo:
+  github: alitrack/pyudf
+  ref: master

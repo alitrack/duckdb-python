@@ -1,117 +1,129 @@
 # pyudf — Python-In-DuckDB Extension
 
 DuckDB loadable extension that embeds CPython inside DuckDB's process, enabling
-`py_eval()`, `py_agg()`, and `py_scan()` from **any** DuckDB client — CLI, JDBC,
-ODBC, Node.js, WASM.
+`py_eval()`, `py_agg()`, and `py_scan()` from DuckDB clients.
 
 Built with [quack-rs](https://quack-rs.com) + [PyO3](https://pyo3.rs).
-
-## Quick Start
-
-```sql
-INSTALL pyudf FROM community;
-LOAD pyudf;
-
--- Scalar: Python expressions on every row
-SELECT py_eval('x.upper()', name) FROM users;
-SELECT py_eval('x[::-1]', text) FROM messages;
-SELECT py_eval('str(len(x))', description) FROM items;
-
--- Aggregate: stateful Python computation across groups
-SELECT py_agg(value,
-  "state['sum']=state.get('sum',0)+int(x);state['n']=state.get('n',0)+1",
-  "str(state['sum']/state['n'])"
-) FROM measurements GROUP BY category;
-
--- Table function: Python callable → rows
-SELECT * FROM py_scan('math', 'sqrt');
-```
 
 ## Functions
 
 | Function | Type | Signature | Description |
 |----------|------|-----------|-------------|
-| `py_activate_venv` | Scalar | `(path VARCHAR) → VARCHAR` | Activate Python virtual environment at `path` |
-| `py_register` | Scalar | `(name VARCHAR, expr VARCHAR, nargs INTEGER) → VARCHAR` | Register a named Python function for reuse |
-| `py_call` | Scalar | `(name VARCHAR, arg VARCHAR) → VARCHAR` | Invoke a registered Python function |
-| `py_map` | Scalar | `(expr VARCHAR, value VARCHAR) → VARCHAR` | Batch column eval — ~100x faster, list comprehension |
-| `py_eval` | Scalar | `(expr VARCHAR, value VARCHAR) → VARCHAR` | Evaluate Python expression per row; `x` bound to value |
-| `py_agg` | Aggregate | `(value VARCHAR, update VARCHAR, finalize VARCHAR) → VARCHAR` | JSON state dict; `state` + `x` in scope |
-| `py_scan` | Table | `(module VARCHAR, func VARCHAR) → TABLE(...)` | Call Python function, return result as table |
+| `py_activate_venv` | Scalar | `(path VARCHAR) -> VARCHAR` | Activate Python virtual environment at `path` |
+| `py_register` | Scalar | `(name VARCHAR, expr VARCHAR, nargs INTEGER) -> VARCHAR` | Register a named Python function for reuse |
+| `py_call` | Scalar | `(name VARCHAR, arg VARCHAR) -> VARCHAR` | Invoke a registered Python function |
+| `py_map` | Scalar | `(expr VARCHAR, value VARCHAR) -> VARCHAR` | Batch column eval |
+| `py_eval` | Scalar | `(expr VARCHAR, value VARCHAR) -> VARCHAR` | Evaluate Python expression per row; `x` bound to value |
+| `py_agg` | Aggregate | `(value VARCHAR, update VARCHAR, finalize VARCHAR) -> VARCHAR` | JSON state dict; `state` + `x` in scope |
+| `py_scan` | Table | `(module VARCHAR, func VARCHAR) -> TABLE(...)` | Call Python function and return rows |
+
+## Quick Start (from source)
+
+### Prerequisites
+
+- Rust toolchain
+- Python 3.12 preferred on macOS for PyO3 linking
+- `make`
+- Git
+
+Clone with submodules:
+
+```bash
+git clone --recurse-submodules git@github.com:alitrack/pyudf.git
+cd pyudf
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Build and package the extension
+
+The final loadable artifact is **not** the raw Cargo `dylib`/`so`. You must build
+through the project Makefile so DuckDB extension metadata is appended and a
+`pyudf.duckdb_extension` file is produced.
+
+```bash
+make configure
+make release
+```
+
+This produces:
+
+- raw library: `target/release/libpyudf.dylib` (or `.so` / `.dll`)
+- packaged extension: `build/release/extension/pyudf/pyudf.duckdb_extension`
+
+Local configure/test installs DuckDB `1.5.4` to match the packaged extension ABI.
+
+### Test
+
+```bash
+make unit-test
+make test_release
+make smoke-test
+```
+
+`make test_release` runs SQLLogicTests through DuckDB's extension test runner.
+`make smoke-test` loads the packaged extension in DuckDB and executes real Python-backed calls.
+The bundled SQLLogicTest currently covers load gating, `py_eval`, `py_register`, and `py_call`.
+
+## Example usage
+
+After building, load the packaged extension file:
+
+```sql
+LOAD './build/release/extension/pyudf/pyudf.duckdb_extension';
+
+SELECT py_eval('x.upper()', 'hello');
+SELECT py_register('double_it', 'str(int(x)*2)', 1);
+SELECT py_call('double_it', '21');
+```
+
+Expected results:
+
+```text
+HELLO
+OK
+42
+```
 
 ## Virtual Env Support
 
-```bash
--- Activate a venv at extension load time
+```sql
 SET py_venv = '/path/to/venv';
 SELECT py_activate_venv('/path/to/venv');
-
--- Or via env var
-$ PYUD_VENV=/path/to/venv duckdb -c "LOAD pyudf; SELECT py_eval('x.upper()', 'hello')"
 ```
 
-All pip-installed packages in the venv are available to UDFs.
-
-## Named Functions
-
-Register Python expressions once and invoke them by name:
-
-```sql
-SELECT py_register('my_upper', 'x.upper()', 1);
-SELECT py_register('doubler', 'str(int(x)*2)', 1);
-
-SELECT py_call('my_upper', 'hello');   -- 'HELLO'
-SELECT py_call('doubler', '5');        -- '10'
-```
-
-This provides `CREATE FUNCTION` semantics without requiring DuckDB parser changes.
-
-## Build from Source
+Or via environment variable before launching DuckDB:
 
 ```bash
-git clone https://github.com/alitrack/pyudf
-cd pyudf
-
-# Prerequisites: Rust 1.75+, Python 3.12 with shared library
-cargo build --release
-# Output: target/release/libpyudf.so (or .dylib / .dll)
-
-# Test
-cargo test --lib
+PYUD_VENV=/path/to/venv duckdb -unsigned -c "LOAD './build/release/extension/pyudf/pyudf.duckdb_extension'; SELECT py_eval('x.upper()', 'hello')"
 ```
 
-### Platform Support
+## Python selection notes
 
-| Platform | Status |
-|----------|--------|
-| linux_amd64 | ✅ |
-| linux_arm64 | Planned |
-| osx_amd64 | Planned |
-| osx_arm64 | Planned |
-| windows_amd64 | Planned |
+On macOS, Apple-provided `/usr/bin/python3` often does not provide a usable shared-library
+layout for this project. The Makefile prefers `/opt/homebrew/bin/python3.12` when available
+and exports `PYO3_PYTHON` automatically.
 
-## Architecture
+If your Python 3.12 lives elsewhere, override it explicitly:
 
-```
-DuckDB SQL → quack-rs callback → Arrow DataChunk
-                                → PyO3 → CPython → numpy/sklearn/...
-                                → Arrow DataChunk → SQL
+```bash
+PYO3_PYTHON=/path/to/python3.12 PYTHON_BIN=/path/to/python3.12 make configure release
 ```
 
-The Python interpreter lives inside DuckDB's process. Data flows through
-zero-copy Arrow pointer handoff between DuckDB and Python.
+## Why `make release` instead of plain `cargo build --release`?
 
-## Roadmap
+A raw Cargo build only produces the shared library. DuckDB loadable extensions also need a
+metadata footer appended to the binary. The `extension-ci-tools` workflow in this repo handles
+that packaging step and emits the real `.duckdb_extension` artifact that DuckDB can load.
 
-- [x] `py_eval` scalar function
-- [x] `py_agg` aggregate function (JSON state)
-- [x] `py_scan` table function
-- [x] Virtual env support (PYUD_VENV)
-- [x] `SET py_venv = '...'` config option + `py_activate_venv`
-- [x] `CREATE FUNCTION ... LANGUAGE python` semantics (py_register / py_call)
-- [x] Arrow zero-copy optimization (py_map batch processing)
-- [x] Python subinterpreter isolation (PEP 684, scaffold)
-- [x] CI pipeline (GitHub Actions)
+## CI
+
+GitHub Actions is configured to use DuckDB's extension distribution pipeline via
+`extension-ci-tools`.
 
 ## License
 

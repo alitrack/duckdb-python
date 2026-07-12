@@ -1,5 +1,5 @@
-# Pin PyO3 to system Python 3.12 (WSL Ubuntu).
-# The uv-managed Python 3.11 is used for venvs but lacks libpython shared library.
-# PyO3 needs libpython.so at compile AND runtime.
-[env]
-PYO3_PYTHON = "/usr/bin/python3"
+# Do not hard-pin PYO3_PYTHON here.
+#
+# Build wrappers (Makefile / CI) should export PYO3_PYTHON explicitly so the
+# selected interpreter matches the host machine. On macOS, a shared-library
+# Python 3.12 such as /opt/homebrew/bin/python3.12 is recommended for PyO3.

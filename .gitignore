@@ -1,6 +1,9 @@
 /target
+/build
+/configure
 /openspec
 Cargo.lock
 *.so
 *.dylib
 *.dll
+*.duckdb_extension
