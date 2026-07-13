@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-# ── Quick smoke tests (no Docker, no artifact) ────────────────────────────
+# ── Smoke tests ──────────────────────────────────────────────────────────
   macos-arm64-smoke:
     name: macOS arm64 smoke
     runs-on: macos-15
@@ -25,16 +25,12 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
       - name: Configure
-        shell: bash
         run: make configure
       - name: Build
-        shell: bash
         run: make release
       - name: SQLLogicTest
-        shell: bash
         run: make test_release
       - name: Runtime smoke test
-        shell: bash
         run: make smoke-test
 
   windows-amd64-smoke:
@@ -79,28 +75,94 @@ jobs:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build tools and Python dev headers
-        shell: bash
         run: |
           sudo apt-get update -y -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq make ninja-build jq python3.12-dev python3.12-venv
       - name: Configure
-        shell: bash
         run: make configure
       - name: Build
-        shell: bash
         run: make release
       - name: SQLLogicTest
-        shell: bash
         run: make test_release
       - name: Runtime smoke test
-        shell: bash
         run: make smoke-test
 
-# ── Formal distribution (Docker-based, uploads .duckdb_extension) ──────────
+# ── Docker build (same as distribution pipeline, without artifact upload) ──
+  linux-docker-embed:
+    name: Linux Docker embed build
+    runs-on: ubuntu-24.04
+    needs: [linux-amd64-smoke]
+    if: success()
+    env:
+      DUCKDB_PLATFORM: linux_amd64
+      VCPKG_TARGET_TRIPLET: x64-linux-release
+      VCPKG_HOST_TRIPLET: x64-linux-release
+      GEN: ninja
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Checkout extension-ci-tools
+        uses: actions/checkout@v4
+        with:
+          repository: duckdb/extension-ci-tools
+          ref: v1.5-variegata
+          path: extension-ci-tools
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg 'vcpkg_url=https://github.com/microsoft/vcpkg.git' \
+            --build-arg 'vcpkg_commit=84bab45d415d22042bd0b9081aea57f362da3f35' \
+            --build-arg 'extra_toolchains=;rust;python3;' \
+            -t duckdb/linux_amd64 \
+            ./extension-ci-tools/docker/linux_amd64
+
+      - name: Create env file
+        run: |
+          cat <<-'EOF' > docker_env.txt
+          VCPKG_BINARY_SOURCES=clear;http,https://vcpkg-cache.duckdb.org,read
+          VCPKG_TARGET_TRIPLET=x64-linux-release
+          VCPKG_OVERLAY_TRIPLETS=/duckdb_build_dir/extension-ci-tools/toolchains
+          VCPKG_OVERLAY_PORTS=/duckdb_build_dir/extension-ci-tools/vcpkg_ports
+          DUCKDB_PLATFORM=linux_amd64
+          DUCKDB_GIT_VERSION=v1.5.4
+          ENABLE_EXTENSION_AUTOINSTALL=1
+          ENABLE_EXTENSION_AUTOLOADING=1
+          EXTENSION_NAME=pyudf
+          LINUX_CI_IN_DOCKER=1
+          GITHUB_ACTIONS=true
+          CI=true
+          CCACHE_MAXSIZE=1G
+          CCACHE_NOCOMPRESS=1
+          EOF
+
+      - name: Run configure (outside Docker)
+        env:
+          DUCKDB_GIT_VERSION: v1.5.4
+          LINUX_CI_IN_DOCKER: 0
+        run: make configure_ci
+
+      - name: Run configure (inside Docker)
+        run: |
+          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir duckdb/linux_amd64 make configure_ci
+
+      - name: Build extension (inside Docker)
+        run: |
+          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir duckdb/linux_amd64 make release
+
+      - name: Verify binary exists
+        run: |
+          ls -la ./build/release/pyudf.duckdb_extension
+          file ./build/release/pyudf.duckdb_extension
+          echo "=== Linux Docker embed build SUCCESS ==="
+
+# ── Formal distribution (artifact upload, master push only) ──────────────────
   duckdb-stable-build:
     name: Distribution
-    needs: [macos-arm64-smoke, linux-amd64-smoke]
-    # Only on master pushes to conserve artifact storage
+    needs: [linux-docker-embed, macos-arm64-smoke]
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
@@ -109,4 +171,5 @@ jobs:
       extension_name: pyudf
       extra_toolchains: rust;python3
       exclude_archs: 'linux_arm64;wasm_mvp;wasm_eh;wasm_threads;windows_amd64'
+      skip_tests: true
     secrets: inherit
