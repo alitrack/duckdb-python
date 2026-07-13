@@ -78,3 +78,42 @@ jobs:
       - name: Runtime smoke test
         shell: bash
         run: make smoke-test
+
+  linux-amd64-smoke:
+    name: Linux amd64 build + test (no artifact upload)
+    runs-on: ubuntu-24.04
+    env:
+      PYO3_PYTHON: /usr/bin/python3.12
+      PYTHON_BIN: /usr/bin/python3.12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build tools and Python dev headers
+        shell: bash
+        run: |
+          sudo apt-get update -y -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq make ninja-build jq python3.12-dev python3.12-venv
+
+      - name: Configure
+        shell: bash
+        run: make configure
+
+      - name: Build
+        shell: bash
+        run: make release
+
+      - name: SQLLogicTest
+        shell: bash
+        run: make test_release
+
+      - name: Runtime smoke test
+        shell: bash
+        run: make smoke-test
