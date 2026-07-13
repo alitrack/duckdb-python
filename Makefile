@@ -22,10 +22,25 @@ all: configure debug
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
 
-configure: venv platform extension_version
+ensure_python_dev:
+	@if [ "$$(uname -s)" = "Linux" ]; then \
+		SUDO=""; \
+		if [ "$$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi; \
+		if command -v apt-get >/dev/null 2>&1; then \
+			$$SUDO apt-get update -y -qq && $$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-dev python3-venv; \
+		elif command -v dnf >/dev/null 2>&1; then \
+			$$SUDO dnf install -y python3-devel python3; \
+		elif command -v yum >/dev/null 2>&1; then \
+			$$SUDO yum install -y python3-devel python3; \
+		elif command -v apk >/dev/null 2>&1; then \
+			$$SUDO apk add --no-cache python3 python3-dev py3-pip; \
+		fi; \
+	fi
 
-debug: build_extension_library_debug build_extension_with_metadata_debug
-release: build_extension_library_release build_extension_with_metadata_release
+configure: ensure_python_dev venv platform extension_version
+
+debug: ensure_python_dev build_extension_library_debug build_extension_with_metadata_debug
+release: ensure_python_dev build_extension_library_release build_extension_with_metadata_release
 
 test: test_release
 test_debug: test_extension_debug

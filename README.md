@@ -45,6 +45,11 @@ The final loadable artifact is **not** the raw Cargo `dylib`/`so`. You must buil
 through the project Makefile so DuckDB extension metadata is appended and a
 `pyudf.duckdb_extension` file is produced.
 
+On Linux CI/build hosts, `make configure`, `make debug`, and `make release` attempt to
+install Python development headers/libraries (`python3-dev` or distro equivalent) when a
+system package manager is available, because PyO3 embedding builds need the Python
+development package in addition to the interpreter itself.
+
 ```bash
 make configure
 make release
