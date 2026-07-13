@@ -7,8 +7,13 @@ use std::ffi::CString;
 
 use libduckdb_sys as ffi;
 use pyo3::prelude::*;
+use pyo3::prepare_freethreaded_python;
 use pyo3::types::PyDict;
 use quack_rs::error::ExtensionError;
+
+fn ensure_python() {
+    prepare_freethreaded_python();
+}
 use quack_rs::vector::{VectorReader, VectorWriter};
 
 const STATE_SIZE: usize = 8192;
@@ -17,6 +22,7 @@ const JOFF: usize = FMAX + 4;
 const JMAX: usize = STATE_SIZE - JOFF - 4;
 
 fn pe(e: PyErr) -> String {
+    ensure_python();
     Python::with_gil(|py| {
         e.traceback(py)
             .and_then(|t| t.format().ok())
@@ -167,6 +173,7 @@ pub fn __test_fin_json(expr: &str, json: &str) -> Result<String, String> {
 // ── Python calls ───────────────────────────────────────────
 
 fn upd_json(expr: &str, json: &str, val: &str) -> Result<String, ExtensionError> {
+    ensure_python();
     Python::with_gil(|py| {
         let l = PyDict::new(py);
         let st = py
@@ -196,6 +203,7 @@ fn upd_json(expr: &str, json: &str, val: &str) -> Result<String, ExtensionError>
 }
 
 fn merge_json(a: &str, b: &str) -> Result<String, ExtensionError> {
+    ensure_python();
     Python::with_gil(|py| {
         let la = py
             .eval(&CString::new(py_json_loads(a)).unwrap(), None, None)
@@ -218,6 +226,7 @@ fn merge_json(a: &str, b: &str) -> Result<String, ExtensionError> {
 }
 
 fn fin_json(expr: &str, json: &str) -> Result<String, ExtensionError> {
+    ensure_python();
     Python::with_gil(|py| {
         let l = PyDict::new(py);
         let st = py

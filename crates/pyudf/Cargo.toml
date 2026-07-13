@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
-pyo3 = { version = "0.24", features = ["auto-initialize"], optional = true }
+pyo3 = { version = "0.24", optional = true }
 libduckdb-sys = { version = "=1.10504.0", features = ["loadable-extension"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

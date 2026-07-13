@@ -9,10 +9,15 @@
 use std::ffi::CString;
 
 use pyo3::prelude::*;
+use pyo3::prepare_freethreaded_python;
 use pyo3::types::{PyDict, PyList};
 use quack_rs::vector::{VectorReader, VectorWriter};
 
 use super::bridge::ensure_initialized;
+
+fn ensure_python() {
+    prepare_freethreaded_python();
+}
 
 /// `py_map(expr VARCHAR, value VARCHAR) → VARCHAR`
 ///
@@ -41,7 +46,7 @@ pub unsafe extern "C" fn py_map(
     } else {
         let mut writer = unsafe { VectorWriter::new(output) };
         for row in 0..row_count {
-            unsafe { writer.set_null(row); }
+            unsafe { writer.set_null(row) };
         }
         return;
     };
@@ -50,57 +55,55 @@ pub unsafe extern "C" fn py_map(
     let val_reader = unsafe { VectorReader::new(input, 1) };
     let mut writer = unsafe { VectorWriter::new(output) };
 
-    // Collect values into a Python list
-    let result = Python::with_gil(|py| {
+    let result = {
         let _ = ensure_initialized();
-        let list = PyList::empty(py);
+        ensure_python();
+        Python::with_gil(|py| {
+            let list = PyList::empty(py);
 
-        for row in 0..row_count {
-            if unsafe { val_reader.is_valid(row) } {
-                let value = unsafe { val_reader.read_str(row) };
-                list.append(value).ok();
-            } else {
-                list.append(py.None()).ok();
-            }
-        }
-
-        // Build and execute the Python code
-        let code_str = format!(
-            "__result__ = [{} for x in __input__]",
-            expr
-        );
-        let locals = PyDict::new(py);
-        locals.set_item("__input__", &list).ok();
-
-        let code = CString::new(code_str.as_bytes()).unwrap();
-        match py.eval(&code, Some(&locals), None) {
-            Ok(_) => {
-                let result_list = locals.get_item("__result__").ok().flatten();
-                match result_list {
-                    Some(rl) if rl.is_instance_of::<PyList>() => {
-                        let rl = rl.downcast_into::<PyList>().ok();
-                        match rl {
-                            Some(py_list) => Ok::<_, String>(
-                                (0..py_list.len())
-                                    .map(|i| {
-                                        let item = py_list.get_item(i).unwrap();
-                                        if item.is_none() {
-                                            None
-                                        } else {
-                                            Some(item.str().unwrap().to_string_lossy().into_owned())
-                                        }
-                                    })
-                                    .collect::<Vec<Option<String>>>()
-                            ),
-                            None => Err("Result is not a list".to_string()),
-                        }
-                    }
-                    _ => Err("Expression did not produce a list".to_string()),
+            for row in 0..row_count {
+                if unsafe { val_reader.is_valid(row) } {
+                    let value = unsafe { val_reader.read_str(row) };
+                    list.append(value).ok();
+                } else {
+                    list.append(py.None()).ok();
                 }
             }
-            Err(e) => Err(format!("Python error: {}", e)),
-        }
-    });
+
+            let code_str = format!("__result__ = [{} for x in __input__]", expr);
+            let locals = PyDict::new(py);
+            locals.set_item("__input__", &list).ok();
+
+            let code = CString::new(code_str.as_bytes()).unwrap();
+            match py.eval(&code, Some(&locals), None) {
+                Ok(_) => {
+                    let result_list = locals.get_item("__result__").ok().flatten();
+                    match result_list {
+                        Some(rl) if rl.is_instance_of::<PyList>() => {
+                            let rl = rl.downcast_into::<PyList>().ok();
+                            match rl {
+                                Some(py_list) => Ok::<_, String>(
+                                    (0..py_list.len())
+                                        .map(|i| {
+                                            let item = py_list.get_item(i).unwrap();
+                                            if item.is_none() {
+                                                None
+                                            } else {
+                                                Some(item.str().unwrap().to_string_lossy().into_owned())
+                                            }
+                                        })
+                                        .collect::<Vec<Option<String>>>()
+                                ),
+                                None => Err("Result is not a list".to_string()),
+                            }
+                        }
+                        _ => Err("Expression did not produce a list".to_string()),
+                    }
+                }
+                Err(e) => Err(format!("Python error: {}", e)),
+            }
+        })
+    };
 
     match result {
         Ok(values) => {

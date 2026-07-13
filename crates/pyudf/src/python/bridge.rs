@@ -5,16 +5,19 @@
 use std::ffi::CString;
 
 use pyo3::prelude::*;
+use pyo3::prepare_freethreaded_python;
 use pyo3::types::PyDict;
 use quack_rs::error::ExtensionError;
 
 /// Ensure Python is initialized (idempotent).
 pub fn ensure_initialized() -> Result<(), ExtensionError> {
+    prepare_freethreaded_python();
     Python::with_gil(|_py| Ok(())).map_err(|e: PyErr| pyerr_to_ext(e))
 }
 
 /// Convert PyErr → ExtensionError with traceback.
 pub fn pyerr_to_ext(err: PyErr) -> ExtensionError {
+    let _ = ensure_initialized();
     let msg = Python::with_gil(|py| {
         let tb = err
             .traceback(py)
@@ -28,6 +31,7 @@ pub fn pyerr_to_ext(err: PyErr) -> ExtensionError {
 /// Evaluate `expr` with variable `x` bound to `value`.
 /// Returns the string representation of the result.
 pub fn eval_py_expr(expr: &str, x: &str) -> Result<String, ExtensionError> {
+    ensure_initialized()?;
     Python::with_gil(|py| {
         let locals = PyDict::new(py);
         locals.set_item("x", x).map_err(pyerr_to_ext)?;
