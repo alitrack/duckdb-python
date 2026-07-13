@@ -8,7 +8,7 @@ repository = "https://github.com/alitrack/pyudf"
 
 [lib]
 name = "pyudf"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
@@ -20,6 +20,15 @@ anyhow = "1"
 tracing = "0.1"
 once_cell = "1"
 
+[build-dependencies]
+pyo3-build-config = "0.24"
+
 [features]
 default = ["cpython"]
 cpython = ["pyo3"]
+# The `embed` feature enables pyo3's `extension-module` which tells the
+# linker NOT to link to libpython at build time. Symbols are resolved at
+# runtime via dlopen(3) — see `src/python/loader.rs`.
+# This is needed for building in CI environments that don't have libpython.a
+# (e.g. the manylinux Docker containers used by extension-ci-tools).
+embed = ["cpython", "pyo3/extension-module"]

@@ -22,6 +22,27 @@ all: configure debug
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
 
+# ── Embed feature flag ──────────────────────────────────────────────────────
+# When LINUX_CI_IN_DOCKER=1 (extension-ci-tools Docker container), libpython.a
+# is not available. Use the `embed` feature which builds without linking
+# libpython at build time; symbols are resolved at runtime via dlopen in
+# src/python/loader.rs (with PYUD_PYTHON_LIB or auto-detect).
+CARGO_EMBED_FLAG =
+ifeq ($(LINUX_CI_IN_DOCKER),1)
+	CARGO_EMBED_FLAG = --features embed
+endif
+
+# Override: inject --features embed when needed
+build_extension_library_debug: check_configure
+	DUCKDB_EXTENSION_NAME=$(EXTENSION_NAME) DUCKDB_EXTENSION_MIN_DUCKDB_VERSION=$(TARGET_DUCKDB_VERSION) cargo build $(CARGO_OVERRIDE_DUCKDB_RS_FLAG) $(CARGO_EMBED_FLAG) $(TARGET_INFO)
+	$(PYTHON_VENV_BIN) -c "from pathlib import Path;Path('$(EXTENSION_BUILD_PATH)/debug/extension/$(EXTENSION_NAME)').mkdir(parents=True, exist_ok=True)"
+	$(PYTHON_VENV_BIN) -c "import shutil;shutil.copyfile('$(TARGET_PATH)/debug$(IS_EXAMPLE)/$(RUST_LIBNAME)', '$(EXTENSION_BUILD_PATH)/debug/$(EXTENSION_LIB_FILENAME)')"
+
+build_extension_library_release: check_configure
+	DUCKDB_EXTENSION_NAME=$(EXTENSION_NAME) DUCKDB_EXTENSION_MIN_DUCKDB_VERSION=$(TARGET_DUCKDB_VERSION) cargo build $(CARGO_OVERRIDE_DUCKDB_RS_FLAG) --release $(CARGO_EMBED_FLAG) $(TARGET_INFO)
+	$(PYTHON_VENV_BIN) -c "from pathlib import Path;Path('$(EXTENSION_BUILD_PATH)/release/extension/$(EXTENSION_NAME)').mkdir(parents=True, exist_ok=True)"
+	$(PYTHON_VENV_BIN) -c "import shutil;shutil.copyfile('$(TARGET_PATH)/release$(IS_EXAMPLE)/$(RUST_LIBNAME)', '$(EXTENSION_BUILD_PATH)/release/$(EXTENSION_LIB_FILENAME)')"
+
 ensure_python_dev:
 	@if [ "$$(uname -s)" = "Linux" ]; then \
 		SUDO=""; \

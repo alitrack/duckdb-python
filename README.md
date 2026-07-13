@@ -127,8 +127,14 @@ that packaging step and emits the real `.duckdb_extension` artifact that DuckDB 
 
 ## CI
 
-GitHub Actions is configured to use DuckDB's extension distribution pipeline via
-`extension-ci-tools`.
+GitHub Actions currently runs a **macOS arm64 smoke workflow** that verifies:
+- `make configure`
+- `make release`
+- `make test_release`
+- `make smoke-test`
+
+This intentionally avoids artifact upload because the repository hit GitHub Actions
+artifact storage quota during the earlier multi-platform distribution workflow.
 
 ## License
 

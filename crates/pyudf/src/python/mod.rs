@@ -2,6 +2,7 @@
 
 pub mod aggregate;
 pub mod bridge;
+pub mod loader;
 pub mod map;
 pub mod registry;
 pub mod scalar;

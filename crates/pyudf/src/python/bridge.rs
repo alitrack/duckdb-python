@@ -9,8 +9,18 @@ use pyo3::prepare_freethreaded_python;
 use pyo3::types::PyDict;
 use quack_rs::error::ExtensionError;
 
+use super::loader;
+
 /// Ensure Python is initialized (idempotent).
+/// First loads libpython dynamically (RTLD_GLOBAL) so that pyo3's
+/// unresolved symbols are resolvable, then initializes the interpreter.
 pub fn ensure_initialized() -> Result<(), ExtensionError> {
+    // dlopen libpython before calling any PyO3 function — the
+    // extension-module feature means libpython is NOT linked at build
+    // time, so we must provide the symbols at runtime.
+    loader::ensure_libpython_loaded().map_err(|e| {
+        ExtensionError::new(format!("Failed to load libpython: {}", e))
+    })?;
     prepare_freethreaded_python();
     Python::with_gil(|_py| Ok(())).map_err(|e: PyErr| pyerr_to_ext(e))
 }

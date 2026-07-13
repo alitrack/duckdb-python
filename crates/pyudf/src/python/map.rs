@@ -9,14 +9,13 @@
 use std::ffi::CString;
 
 use pyo3::prelude::*;
-use pyo3::prepare_freethreaded_python;
 use pyo3::types::{PyDict, PyList};
 use quack_rs::vector::{VectorReader, VectorWriter};
 
 use super::bridge::ensure_initialized;
 
 fn ensure_python() {
-    prepare_freethreaded_python();
+    let _ = ensure_initialized();
 }
 
 /// `py_map(expr VARCHAR, value VARCHAR) → VARCHAR`

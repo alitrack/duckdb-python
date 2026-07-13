@@ -4,13 +4,14 @@ use std::ffi::CString;
 
 use libduckdb_sys as ffi;
 use pyo3::prelude::*;
-use pyo3::prepare_freethreaded_python;
 use quack_rs::error::ExtensionError;
 use quack_rs::table::{BindInfo, FfiBindData, FfiInitData};
 use quack_rs::types::TypeId;
 
+use super::bridge::ensure_initialized;
+
 fn ensure_python() {
-    prepare_freethreaded_python();
+    let _ = ensure_initialized();
 }
 
 fn pe(e: PyErr) -> String {
