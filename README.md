@@ -1,7 +1,8 @@
 # pyudf — Python-In-DuckDB Extension
 
 DuckDB loadable extension that embeds CPython inside DuckDB's process, enabling
-`py_eval()`, `py_agg()`, and `py_scan()` from DuckDB clients.
+`py_eval()`, `py_agg()`, `py_scan()`, and **named Python UDFs callable directly
+by name** (e.g., `SELECT my_func('hello')`).
 
 Built with [quack-rs](https://quack-rs.com) + [PyO3](https://pyo3.rs).
 
@@ -10,12 +11,24 @@ Built with [quack-rs](https://quack-rs.com) + [PyO3](https://pyo3.rs).
 | Function | Type | Signature | Description |
 |----------|------|-----------|-------------|
 | `py_activate_venv` | Scalar | `(path VARCHAR) -> VARCHAR` | Activate Python virtual environment at `path` |
-| `py_register` | Scalar | `(name VARCHAR, expr VARCHAR, nargs INTEGER) -> VARCHAR` | Register a named Python function for reuse |
-| `py_call` | Scalar | `(name VARCHAR, arg VARCHAR) -> VARCHAR` | Invoke a registered Python function |
+| `py_register` | Scalar | `(name VARCHAR, expr VARCHAR, nargs INTEGER) -> VARCHAR` | Register a named Python function **and make it callable directly by name** |
+| `py_call` | Scalar | `(name VARCHAR, arg VARCHAR) -> VARCHAR` | Invoke a registered Python function (also works for functions not callable directly) |
 | `py_map` | Scalar | `(expr VARCHAR, value VARCHAR) -> VARCHAR` | Batch column eval |
 | `py_eval` | Scalar | `(expr VARCHAR, value VARCHAR) -> VARCHAR` | Evaluate Python expression per row; `x` bound to value |
 | `py_agg` | Aggregate | `(value VARCHAR, update VARCHAR, finalize VARCHAR) -> VARCHAR` | JSON state dict; `state` + `x` in scope |
 | `py_scan` | Table | `(module VARCHAR, func VARCHAR) -> TABLE(...)` | Call Python function and return rows |
+
+### Direct function calling (v1.2+)
+
+After `py_register`, the function is registered as a native DuckDB scalar
+function and can be called **directly by name** — no `py_call` wrapper needed.
+
+```sql
+SELECT py_register('double', 'str(int(x)*2)', 1);
+SELECT double('5');           -- '10' ✨ direct call!
+SELECT double('hello');       -- error (int conversion fails → NULL)
+SELECT py_call('double', '5'); -- '10' (backward-compatible)
+```
 
 ## Quick Start (from source)
 
@@ -83,7 +96,8 @@ LOAD './build/release/extension/pyudf/pyudf.duckdb_extension';
 
 SELECT py_eval('x.upper()', 'hello');
 SELECT py_register('double_it', 'str(int(x)*2)', 1);
-SELECT py_call('double_it', '21');
+SELECT double_it('21');   -- direct call!
+SELECT py_call('double_it', '21');  -- also works
 ```
 
 Expected results:
@@ -91,6 +105,7 @@ Expected results:
 ```text
 HELLO
 OK
+42
 42
 ```
 
