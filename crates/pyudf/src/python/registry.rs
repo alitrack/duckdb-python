@@ -1,12 +1,17 @@
 //! Python function registry.
 //!
 //! Stores named Python functions registered via `py_register()`
-//! and invokes them via `py_call()`.
+//! and invokes them via `py_call()` or directly by name (after `py_register`
+//! dynamically registers a DuckDB scalar function).
 
 use std::collections::HashMap;
+use std::ffi::{c_char, c_void, CStr, CString};
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
+use quack_rs::scalar::{ScalarFunctionBuilder, ScalarFunctionInfo};
+use quack_rs::types::TypeId;
 use quack_rs::vector::{VectorReader, VectorWriter};
 
 use super::bridge::eval_py_expr;
@@ -41,13 +46,83 @@ pub fn list_names() -> Vec<String> {
     REGISTRY.lock().unwrap().keys().cloned().collect()
 }
 
+// ── Dynamic dispatch: one callback for all user-registered functions ──
+
+/// Destroy callback for extra_info: frees the CString holding the function name.
+unsafe extern "C" fn free_string(ptr: *mut c_void) {
+    if !ptr.is_null() {
+        drop(CString::from_raw(ptr as *mut c_char));
+    }
+}
+
+/// Generic dispatch callback for dynamically registered Python UDFs.
+///
+/// Reads the function name from `extra_info`, looks up the Python body
+/// in REGISTRY, and evaluates it against the input arguments.
+///
+/// This callback is shared by ALL functions registered via `py_register`.
+/// DuckDB routes calls to `double(5)`, `my_upper('hello')`, etc. all here.
+unsafe extern "C" fn py_dispatch(
+    info: libduckdb_sys::duckdb_function_info,
+    input: libduckdb_sys::duckdb_data_chunk,
+    output: libduckdb_sys::duckdb_vector,
+) {
+    // 1. Get function name from extra_info
+    let func_info = unsafe { ScalarFunctionInfo::new(info) };
+    let name_ptr = unsafe { func_info.get_extra_info() } as *const c_char;
+    let name = if name_ptr.is_null() {
+        // Should never happen — py_register always sets extra_info
+        fill_null(output, 0);
+        return;
+    } else {
+        match unsafe { CStr::from_ptr(name_ptr) }.to_str() {
+            Ok(n) => n.to_string(),
+            Err(_) => {
+                fill_null(output, 0);
+                return;
+            }
+        }
+    };
+
+    // 2. Look up function body
+    let body = match REGISTRY.lock().unwrap().get(&name) {
+        Some((expr, _)) => expr.clone(),
+        None => {
+            // Function was unregistered somehow — return nulls
+            fill_null(output, 0);
+            return;
+        }
+    };
+
+    // 3. Read first input column as `x` argument
+    let arg_reader = unsafe { VectorReader::new(input, 0) };
+    let row_count = arg_reader.row_count();
+
+    let mut writer = unsafe { VectorWriter::new(output) };
+    for row in 0..row_count {
+        if unsafe { !arg_reader.is_valid(row) } {
+            unsafe { writer.set_null(row); }
+            continue;
+        }
+        let arg = unsafe { arg_reader.read_str(row) };
+        match eval_py_expr(&body, &arg) {
+            Ok(result) => unsafe { writer.write_varchar(row, &result) },
+            Err(_) => unsafe { writer.set_null(row) },
+        }
+    }
+}
+
+// ── py_register: stores in REGISTRY + registers native DuckDB function ──
+
 /// `py_register(name VARCHAR, expr VARCHAR, nargs INTEGER) → VARCHAR`
 ///
-/// Registers a named Python function for later invocation via `py_call()`.
+/// Registers a named Python function AND creates a corresponding DuckDB
+/// scalar function so it can be called directly by name.
 ///
 /// ```sql
-/// SELECT py_register('my_upper', 'x.upper()', 1);
-/// SELECT py_call('my_upper', 'hello');  -- 'HELLO'
+/// SELECT py_register('double', 'str(int(x)*2)', 1);
+/// SELECT double('5');  -- '10'  (direct call, no py_call needed!)
+/// SELECT py_call('double', '5');  -- also still works
 /// ```
 #[no_mangle]
 pub unsafe extern "C" fn py_register(
@@ -80,7 +155,40 @@ pub unsafe extern "C" fn py_register(
         1
     };
 
+    // Store in REGISTRY (existing logic)
     register(&name, &expr, nargs);
+
+    // Dynamically register a DuckDB scalar function with the user's name.
+    // This makes `SELECT double('5')` work without `py_call`.
+    let conn_ptr = crate::CON.load(Ordering::Relaxed);
+    if !conn_ptr.is_null() {
+        let con = unsafe { (*conn_ptr).0 };
+        let name_c = CString::new(&name[..]).unwrap();
+        let name_ptr = name_c.into_raw() as *mut c_void;
+
+        let result = unsafe {
+            ScalarFunctionBuilder::new(&name)
+                .param(TypeId::Varchar)
+                .returns(TypeId::Varchar)
+                .function(py_dispatch)
+                .extra_info(name_ptr, Some(free_string))
+                .register(con)
+        };
+
+        match result {
+            Ok(()) => {
+                // Success — function is now callable by name
+            }
+            Err(_e) => {
+                // If registration fails (e.g. name conflict), the function
+                // is still in REGISTRY and can be used via py_call().
+                // Free the leaked CString since registration failed.
+                if !name_ptr.is_null() {
+                    drop(CString::from_raw(name_ptr as *mut c_char));
+                }
+            }
+        }
+    }
 
     let mut writer = unsafe { VectorWriter::new(output) };
     for row in 0..row_count {
@@ -90,9 +198,12 @@ pub unsafe extern "C" fn py_register(
     }
 }
 
+// ── py_call: backward-compatible explicit invocation ──
+
 /// `py_call(name VARCHAR, arg VARCHAR) → VARCHAR`
 ///
 /// Invokes a previously registered Python function with one argument.
+/// Also works for functions registered with the old API.
 ///
 /// ```sql
 /// SELECT py_register('double', 'str(int(x)*2)', 1);

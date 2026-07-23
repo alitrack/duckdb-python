@@ -3,6 +3,9 @@
 //! Embeds CPython (via PyO3) inside DuckDB's process to enable
 //! Python scalar, aggregate, and table functions from any DuckDB client.
 
+use std::sync::atomic::{AtomicPtr, Ordering};
+
+use libduckdb_sys::duckdb_connection;
 use quack_rs::aggregate::AggregateFunctionBuilder;
 #[cfg(feature = "cpython")]
 use quack_rs::config_option::{ConfigOptionBuilder, ConfigOptionScope};
@@ -13,6 +16,19 @@ use quack_rs::table::TableFunctionBuilder;
 use quack_rs::types::TypeId;
 
 mod python;
+
+/// Wrapper around `duckdb_connection` (`*mut _duckdb_connection`) that is
+/// `Send + Sync`. DuckDB extensions are inherently single-threaded; this
+/// wrapper is only used to store the connection in a static for dynamic
+/// function registration from `py_register`.
+struct Conn(duckdb_connection);
+unsafe impl Send for Conn {}
+unsafe impl Sync for Conn {}
+
+/// Cached connection handle for dynamic function registration.
+/// Set during extension init, used by `py_register` to register
+/// user-named scalar functions on the fly.
+pub(crate) static CON: AtomicPtr<Conn> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Extension entry point — DuckDB calls this symbol at load time.
 #[no_mangle]
@@ -29,6 +45,9 @@ pub unsafe extern "C" fn pyudf_init_c_api(
 
 /// Register all Python-backed functions with DuckDB.
 unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<(), ExtensionError> {
+    // Cache connection handle for dynamic function registration in py_register
+    CON.store(Box::into_raw(Box::new(Conn(con))), Ordering::Relaxed);
+
     // ── Config option: py_venv ──
     #[cfg(feature = "cpython")]
     unsafe {
