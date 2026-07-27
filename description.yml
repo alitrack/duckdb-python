@@ -1,5 +1,5 @@
 extension:
-  name: pyudf
+  name: python
   description: "Embedded CPython UDFs for DuckDB: py_eval, py_agg, py_scan, py_register, and py_call."
   version: 0.1.0
   language: Rust
@@ -10,5 +10,5 @@ extension:
     - alitrack
 
 repo:
-  github: alitrack/pyudf
+  github: alitrack/duckdb-python
   ref: master

@@ -1,4 +1,4 @@
-# pyudf — Python-In-DuckDB Extension
+# duckdb-python — Python-In-DuckDB Extension
 
 DuckDB loadable extension that embeds CPython inside DuckDB's process, enabling
 `py_eval()`, `py_agg()`, `py_scan()`, and **named Python UDFs callable directly
@@ -42,8 +42,8 @@ SELECT py_call('double', '5'); -- '10' (backward-compatible)
 Clone with submodules:
 
 ```bash
-git clone --recurse-submodules git@github.com:alitrack/pyudf.git
-cd pyudf
+git clone --recurse-submodules git@github.com:alitrack/duckdb-python.git
+cd duckdb-python
 ```
 
 If you already cloned without submodules:
@@ -56,7 +56,7 @@ git submodule update --init --recursive
 
 The final loadable artifact is **not** the raw Cargo `dylib`/`so`. You must build
 through the project Makefile so DuckDB extension metadata is appended and a
-`pyudf.duckdb_extension` file is produced.
+`python.duckdb_extension` file is produced.
 
 On Linux CI/build hosts, `make configure`, `make debug`, and `make release` attempt to
 install Python development headers/libraries (`python3-dev` or distro equivalent) when a
@@ -70,8 +70,8 @@ make release
 
 This produces:
 
-- raw library: `target/release/libpyudf.dylib` (or `.so` / `.dll`)
-- packaged extension: `build/release/extension/pyudf/pyudf.duckdb_extension`
+- raw library: `target/release/libpython_ext.dylib` (or `.so` / `.dll`)
+- packaged extension: `build/release/extension/python/python.duckdb_extension`
 
 Local configure/test installs DuckDB `1.5.4` to match the packaged extension ABI.
 
@@ -92,7 +92,7 @@ The bundled SQLLogicTest currently covers load gating, `py_eval`, `py_register`,
 After building, load the packaged extension file:
 
 ```sql
-LOAD './build/release/extension/pyudf/pyudf.duckdb_extension';
+LOAD './build/release/extension/python/python.duckdb_extension';
 
 SELECT py_eval('x.upper()', 'hello');
 SELECT py_register('double_it', 'str(int(x)*2)', 1);
@@ -119,7 +119,7 @@ SELECT py_activate_venv('/path/to/venv');
 Or via environment variable before launching DuckDB:
 
 ```bash
-PYUD_VENV=/path/to/venv duckdb -unsigned -c "LOAD './build/release/extension/pyudf/pyudf.duckdb_extension'; SELECT py_eval('x.upper()', 'hello')"
+PYUD_VENV=/path/to/venv duckdb -unsigned -c "LOAD './build/release/extension/python/python.duckdb_extension'; SELECT py_eval('x.upper()', 'hello')"
 ```
 
 ## Python selection notes

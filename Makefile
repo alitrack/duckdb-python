@@ -2,7 +2,7 @@
 
 PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-EXTENSION_NAME=pyudf
+EXTENSION_NAME=python
 
 # pyudf uses quack-rs modules gated behind DuckDB 1.5 APIs (e.g. config options),
 # so package binaries for a concrete DuckDB 1.5 release.
@@ -71,7 +71,7 @@ unit-test:
 	cargo test --lib
 
 smoke-test: release
-	$(PYTHON_VENV_BIN) -c "import duckdb; con = duckdb.connect(config={'allow_unsigned_extensions': 'true'}); con.execute(\"LOAD 'build/release/extension/pyudf/pyudf.duckdb_extension'\"); print(con.execute(\"SELECT py_eval('x.upper()', 'hello')\").fetchall()); print(con.execute(\"SELECT py_register('double_it', 'str(int(x)*2)', 1)\").fetchall()); print(con.execute(\"SELECT py_call('double_it', '21')\").fetchall())"
+	$(PYTHON_VENV_BIN) -c "import duckdb; con = duckdb.connect(config={'allow_unsigned_extensions': 'true'}); con.execute(\"LOAD 'build/release/extension/python/python.duckdb_extension'\"); print(con.execute(\"SELECT py_eval('x.upper()', 'hello')\").fetchall()); print(con.execute(\"SELECT py_register('double_it', 'str(int(x)*2)', 1)\").fetchall()); print(con.execute(\"SELECT py_call('double_it', '21')\").fetchall())"
 
 clean: clean_build clean_rust
 clean_all: clean_configure clean
