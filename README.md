@@ -18,17 +18,23 @@ Built with [quack-rs](https://quack-rs.com) + [libduckdb-sys](https://crates.io/
 | `py_agg` | Aggregate | `(value VARCHAR, update VARCHAR, finalize VARCHAR) -> VARCHAR` | JSON state dict; `state` + `x` in scope |
 | `py_scan` | Table | `(module VARCHAR, func VARCHAR) -> TABLE(...)` | Call Python function and return rows |
 
-### Direct function calling (v1.2+)
+### Direct function calling ✅
 
-After `py_register`, the function is registered as a native DuckDB scalar
-function and can be called **directly by name** — no `py_call` wrapper needed.
+After `py_register`, the function is registered as a **native DuckDB scalar
+function** and can be called **directly by name** — no `py_call` wrapper needed.
+
+Works on DuckDB 1.5.4+ (verified on macOS arm64, Linux x86_64).
 
 ```sql
-SELECT py_register('double', 'str(int(x)*2)', 1);
-SELECT double('5');           -- '10' ✨ direct call!
-SELECT double('hello');       -- error (int conversion fails → NULL)
-SELECT py_call('double', '5'); -- '10' (backward-compatible)
+SELECT py_register('double', 'str(int(x)*2)', 1);  -- returns 'OK'
+SELECT double('5');                                    -- '10' ✨ direct call!
+SELECT py_call('double', '5');                         -- '10' (backward-compatible)
 ```
+
+**How it works:** `py_register` opens a fresh DuckDB connection from the
+cached database handle, calls `ScalarFunctionBuilder::register` on the new
+connection, and disconnects. This bypasses the init_extension connection
+lifecycle issue that caused segfaults in earlier versions.
 
 ## Quick Start (from source)
 

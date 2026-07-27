@@ -17,21 +17,9 @@ use quack_rs::types::TypeId;
 
 mod python;
 
-/// Wrapper around `duckdb_connection` (`*mut _duckdb_connection`) that is
-/// `Send + Sync`. DuckDB extensions are inherently single-threaded; this
-/// wrapper is only used to store the connection in a static for dynamic
-/// function registration from `py_register`.
-struct Conn(duckdb_connection);
-unsafe impl Send for Conn {}
-unsafe impl Sync for Conn {}
-
-/// Cached connection handle for dynamic function registration.
-/// Set during extension init, used by `py_register` to register
-/// user-named scalar functions on the fly.
-pub(crate) static CON: AtomicPtr<Conn> = AtomicPtr::new(std::ptr::null_mut());
-
-/// Cached database handle — py_register opens fresh connections to avoid
-/// "catalog mutation during query execution" crash.
+/// Cached database handle for opening fresh connections during `py_register`.
+/// Using a new connection avoids the lifecycle issue where the init_extension
+/// connection is invalidated after the callback returns.
 static DB: AtomicPtr<libduckdb_sys::_duckdb_database> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Open a new DuckDB connection from the cached database handle.
@@ -64,9 +52,6 @@ pub unsafe extern "C" fn python_init_c_api(
 
 /// Register all Python-backed functions with DuckDB.
 unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<(), ExtensionError> {
-    // Cache connection handle for dynamic function registration in py_register
-    CON.store(Box::into_raw(Box::new(Conn(con))), Ordering::Release);
-
     // ── Config option: py_venv ──
     #[cfg(feature = "cpython")]
     unsafe {
