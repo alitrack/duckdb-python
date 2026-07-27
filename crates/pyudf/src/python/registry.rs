@@ -157,37 +157,36 @@ pub unsafe extern "C" fn py_register(
     // Store in REGISTRY (existing logic)
     register(&name, &expr, nargs);
 
-    // Dynamically register a DuckDB scalar function with the user's name.
-    // This makes `SELECT double('5')` work without `py_call`.
-    let conn_ptr = crate::CON.load(Ordering::Acquire);
-    if !conn_ptr.is_null() {
-        let con = unsafe { (*conn_ptr).0 };
-        let name_c = CString::new(&name[..]).unwrap();
-        let name_ptr = name_c.into_raw() as *mut c_void;
-
-        let result = unsafe {
-            ScalarFunctionBuilder::new(&name)
-                .param(TypeId::Varchar)
-                .returns(TypeId::Varchar)
-                .function(py_dispatch)
-                .extra_info(name_ptr, Some(free_string))
-                .register(con)
-        };
-
-        match result {
-            Ok(()) => {
-                // Success — function is now callable by name
-            }
-            Err(_e) => {
-                // If registration fails (e.g. name conflict), the function
-                // is still in REGISTRY and can be used via py_call().
-                // Free the leaked CString since registration failed.
-                if !name_ptr.is_null() {
-                    drop(CString::from_raw(name_ptr as *mut c_char));
-                }
-            }
-        }
+    // 🔑 Try fresh connection from database handle
+    let db = crate::DB.load(Ordering::Acquire);
+    if db.is_null() {
+        let mut writer = unsafe { VectorWriter::new(output) };
+        for row in 0..row_count { unsafe { writer.write_varchar(row, "NODB"); } }
+        return;
     }
+    let mut con: libduckdb_sys::duckdb_connection = std::ptr::null_mut();
+    let rc = unsafe { libduckdb_sys::duckdb_connect(db, &raw mut con) };
+    if rc != libduckdb_sys::DuckDBSuccess {
+        let mut writer = unsafe { VectorWriter::new(output) };
+        let msg = format!("CONNECT_ERR {}", rc as i32);
+        for row in 0..row_count { unsafe { writer.write_varchar(row, &msg); } }
+        return;
+    }
+    // Register on fresh connection
+    let name_c = CString::new(&name[..]).unwrap();
+    let name_ptr = name_c.into_raw() as *mut c_void;
+    let result = unsafe {
+        ScalarFunctionBuilder::new(&name)
+            .param(TypeId::Varchar)
+            .returns(TypeId::Varchar)
+            .function(py_dispatch)
+            .extra_info(name_ptr, Some(free_string))
+            .register(con)
+    };
+    if result.is_err() {
+        drop(unsafe { CString::from_raw(name_ptr as *mut c_char) });
+    }
+    libduckdb_sys::duckdb_disconnect(&raw mut con);
 
     let mut writer = unsafe { VectorWriter::new(output) };
     for row in 0..row_count {
