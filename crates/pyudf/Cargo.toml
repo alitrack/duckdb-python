@@ -1,13 +1,13 @@
 [package]
-name = "duckdb-python"
+name = "duckdb_python"
 version = "0.1.0"
 edition = "2021"
 description = "DuckDB loadable extension for Python UDFs — scalar, aggregate, and table functions with embedded CPython"
 license = "MIT"
-repository = "https://github.com/alitrack/pyudf"
+repository = "https://github.com/alitrack/duckdb-python"
 
 [lib]
-name = "duckdb-python"
+name = "pyudf"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
