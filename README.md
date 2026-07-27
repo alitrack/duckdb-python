@@ -4,7 +4,7 @@ DuckDB loadable extension that embeds CPython inside DuckDB's process, enabling
 `py_eval()`, `py_agg()`, `py_scan()`, and **named Python UDFs callable directly
 by name** (e.g., `SELECT my_func('hello')`).
 
-Built with [quack-rs](https://quack-rs.com) + [PyO3](https://pyo3.rs).
+Built with [quack-rs](https://quack-rs.com) + [libduckdb-sys](https://crates.io/crates/libduckdb-sys) + [PyO3](https://pyo3.rs).
 
 ## Functions
 
