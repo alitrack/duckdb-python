@@ -32,7 +32,7 @@ pub(crate) static CON: AtomicPtr<Conn> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Extension entry point — DuckDB calls this symbol at load time.
 #[no_mangle]
-pub unsafe extern "C" fn pyudf_init_c_api(
+pub unsafe extern "C" fn python_init_c_api(
     info: libduckdb_sys::duckdb_extension_info,
     access: *const libduckdb_sys::duckdb_extension_access,
 ) -> bool {

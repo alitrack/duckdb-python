@@ -68,6 +68,16 @@ configure/venv:
 		$(PYTHON_BIN) -m venv configure/venv; \
 	fi
 
+# Override: our Cargo [lib] name is pyudf (python would clash with system libpython).
+# base.Makefile defaults to lib$(EXTENSION_NAME).so = libpython.so — we override here.
+EXTENSION_LIB_FILENAME=libpyudf.so
+ifeq ($(OS),Windows_NT)
+EXTENSION_LIB_FILENAME=pyudf.dll
+endif
+ifeq ($(shell uname -s 2>/dev/null),Darwin)
+EXTENSION_LIB_FILENAME=libpyudf.dylib
+endif
+
 debug: ensure_python_dev build_extension_library_debug build_extension_with_metadata_debug
 release: ensure_python_dev build_extension_library_release build_extension_with_metadata_release
 

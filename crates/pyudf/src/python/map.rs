@@ -71,12 +71,17 @@ pub unsafe extern "C" fn py_map(
             // Pass user expression as a Python variable, NOT via string interpolation.
             // compile()+eval() pattern: expr is data, template is fixed — prevents injection.
             locals.set_item("__expr__", expr).ok();
+            // Provide __builtins__ from Rust side (eval() can't execute import statements)
+            let builtins = py.import("builtins").ok();
+            if let Some(ref b) = builtins {
+                locals.set_item("__builtins__", b).ok();
+            }
 
             let code = CString::new(
                 "__code__ = compile(__expr__, '<py_map>', 'eval')\n\
                  __result__ = [eval(__code__, {'x': x, '__builtins__': __builtins__}) for x in __input__]"
             ).unwrap();
-            match py.eval(&code, Some(&locals), None) {
+            match py.run(&code, Some(&locals), None) {
                 Ok(_) => {
                     let result_list = locals.get_item("__result__").ok().flatten();
                     match result_list {
