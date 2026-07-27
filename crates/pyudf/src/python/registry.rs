@@ -16,6 +16,24 @@ use quack_rs::vector::{VectorReader, VectorWriter};
 
 use super::bridge::eval_py_expr;
 
+/// SQL reserved words that cannot be used as function names.
+const RESERVED: &[&str] = &[
+    "add", "all", "alter", "and", "any", "as", "asc", "between", "by", "case",
+    "check", "column", "constraint", "create", "cross", "default", "delete",
+    "desc", "distinct", "double", "drop", "else", "end", "except", "exists",
+    "false", "float", "foreign", "from", "full", "group", "having", "if", "in",
+    "inner", "insert", "int", "integer", "intersect", "into", "is", "join",
+    "key", "left", "like", "limit", "not", "null", "of", "offset", "on", "or",
+    "order", "outer", "over", "primary", "real", "references", "replace",
+    "right", "select", "set", "some", "struct", "table", "then", "true",
+    "union", "unique", "update", "using", "values", "varchar", "view", "when",
+    "where", "with",
+];
+
+fn is_reserved(name: &str) -> bool {
+    RESERVED.iter().any(|&r| r.eq_ignore_ascii_case(name))
+}
+
 /// Global registry of named Python functions.
 /// Maps name → (expression, arg_count).
 static REGISTRY: Lazy<Mutex<HashMap<String, (String, usize)>>> =
@@ -157,6 +175,14 @@ pub unsafe extern "C" fn py_register(
     // Store in REGISTRY (existing logic)
     register(&name, &expr, nargs);
 
+    // Reject SQL reserved words (e.g. double, select) — DuckDB may register them
+    // but the SQL parser will never resolve them as function names.
+    if is_reserved(&name) {
+        let mut writer = unsafe { VectorWriter::new(output) };
+        for row in 0..row_count { unsafe { writer.write_varchar(row, "RESERVED"); } }
+        return;
+    }
+
     // 🔑 Try fresh connection from database handle
     let db = crate::DB.load(Ordering::Acquire);
     if db.is_null() {
@@ -173,10 +199,20 @@ pub unsafe extern "C" fn py_register(
         return;
     }
     // Register on fresh connection
+    let builder = match ScalarFunctionBuilder::try_new(&name) {
+        Ok(b) => b,
+        Err(e) => {
+            let msg = format!("BADNAME: {}", e);
+            let mut writer = unsafe { VectorWriter::new(output) };
+            for row in 0..row_count { unsafe { writer.write_varchar(row, &msg); } }
+            libduckdb_sys::duckdb_disconnect(&raw mut con);
+            return;
+        }
+    };
     let name_c = CString::new(&name[..]).unwrap();
     let name_ptr = name_c.into_raw() as *mut c_void;
     let result = unsafe {
-        ScalarFunctionBuilder::new(&name)
+        builder
             .param(TypeId::Varchar)
             .returns(TypeId::Varchar)
             .function(py_dispatch)
