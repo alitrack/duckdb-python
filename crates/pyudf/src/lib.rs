@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use libduckdb_sys::duckdb_connection;
+use libduckdb_sys::{duckdb_connection, duckdb_database};
 use quack_rs::aggregate::AggregateFunctionBuilder;
 #[cfg(feature = "cpython")]
 use quack_rs::config_option::{ConfigOptionBuilder, ConfigOptionScope};
@@ -30,6 +30,19 @@ unsafe impl Sync for Conn {}
 /// user-named scalar functions on the fly.
 pub(crate) static CON: AtomicPtr<Conn> = AtomicPtr::new(std::ptr::null_mut());
 
+/// Cached database handle — py_register opens fresh connections to avoid
+/// "catalog mutation during query execution" crash.
+static DB: AtomicPtr<libduckdb_sys::_duckdb_database> = AtomicPtr::new(std::ptr::null_mut());
+
+/// Open a new DuckDB connection from the cached database handle.
+pub(crate) unsafe fn fresh_connection() -> Option<duckdb_connection> {
+    let db = DB.load(Ordering::Acquire);
+    if db.is_null() { return None; }
+    let mut con: duckdb_connection = std::ptr::null_mut();
+    let rc = libduckdb_sys::duckdb_connect(db, &raw mut con);
+    if rc == libduckdb_sys::DuckDBSuccess { Some(con) } else { None }
+}
+
 /// Extension entry point — DuckDB calls this symbol at load time.
 #[no_mangle]
 pub unsafe extern "C" fn python_init_c_api(
@@ -37,6 +50,12 @@ pub unsafe extern "C" fn python_init_c_api(
     access: *const libduckdb_sys::duckdb_extension_access,
 ) -> bool {
     unsafe {
+        // Store database handle for fresh connection in py_register.
+        if let Some(get_db) = (*access).get_database {
+            let db = get_db(info);
+            DB.store(*db, Ordering::Release);
+        }
+
         init_extension(info, access, quack_rs::DUCKDB_API_VERSION, |con| {
             register_functions(con)
         })

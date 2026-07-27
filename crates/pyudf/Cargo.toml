@@ -11,7 +11,7 @@ name = "pyudf"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
+quack-rs = { git = "https://github.com/adonm/quack-rs", rev = "00537fa589e7561c0ec010632da1962583a80911", features = ["duckdb-1-5"] }
 pyo3 = { version = "0.24", optional = true }
 libduckdb-sys = { version = "=1.10504.0", features = ["loadable-extension"] }
 serde = { version = "1", features = ["derive"] }
