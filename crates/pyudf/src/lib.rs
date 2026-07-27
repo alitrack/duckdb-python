@@ -46,7 +46,7 @@ pub unsafe extern "C" fn pyudf_init_c_api(
 /// Register all Python-backed functions with DuckDB.
 unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<(), ExtensionError> {
     // Cache connection handle for dynamic function registration in py_register
-    CON.store(Box::into_raw(Box::new(Conn(con))), Ordering::Relaxed);
+    CON.store(Box::into_raw(Box::new(Conn(con))), Ordering::Release);
 
     // ── Config option: py_venv ──
     #[cfg(feature = "cpython")]
@@ -89,6 +89,15 @@ unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<()
             .param(TypeId::Varchar)
             .returns(TypeId::Varchar)
             .function(python::registry::py_call)
+            .register(con)?;
+    }
+
+    // ── Scalar: py_list_functions() → VARCHAR ──
+    #[cfg(feature = "cpython")]
+    unsafe {
+        ScalarFunctionBuilder::new("py_list_functions")
+            .returns(TypeId::Varchar)
+            .function(python::registry::py_list_functions)
             .register(con)?;
     }
 
@@ -140,17 +149,6 @@ unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<()
             .bind(python::table::py_scan_bind)
             .init(python::table::py_scan_init)
             .scan(python::table::py_scan_scan)
-            .register(con)?;
-    }
-
-    // ── Config option: py_subinterpreter ──
-    #[cfg(feature = "cpython")]
-    unsafe {
-        ConfigOptionBuilder::try_new("py_subinterpreter")?
-            .description("Enable PEP 684 subinterpreter isolation (Python 3.12+)")?
-            .option_type(TypeId::Boolean)
-            .default_value("false")?
-            .scope(ConfigOptionScope::Global)
             .register(con)?;
     }
 

@@ -12,11 +12,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use quack_rs::vector::{VectorReader, VectorWriter};
 
-use super::bridge::ensure_initialized;
-
-fn ensure_python() {
-    let _ = ensure_initialized();
-}
+use super::bridge::ensure_python;
 
 /// `py_map(expr VARCHAR, value VARCHAR) → VARCHAR`
 ///
@@ -55,9 +51,10 @@ pub unsafe extern "C" fn py_map(
     let mut writer = unsafe { VectorWriter::new(output) };
 
     let result = {
-        let _ = ensure_initialized();
-        ensure_python();
-        Python::with_gil(|py| {
+        if let Err(e) = ensure_python() {
+            Err(format!("Python init error: {}", e))
+        } else {
+            Python::with_gil(|py| {
             let list = PyList::empty(py);
 
             for row in 0..row_count {
@@ -69,11 +66,16 @@ pub unsafe extern "C" fn py_map(
                 }
             }
 
-            let code_str = format!("__result__ = [{} for x in __input__]", expr);
             let locals = PyDict::new(py);
             locals.set_item("__input__", &list).ok();
+            // Pass user expression as a Python variable, NOT via string interpolation.
+            // compile()+eval() pattern: expr is data, template is fixed — prevents injection.
+            locals.set_item("__expr__", expr).ok();
 
-            let code = CString::new(code_str.as_bytes()).unwrap();
+            let code = CString::new(
+                "__code__ = compile(__expr__, '<py_map>', 'eval')\n\
+                 __result__ = [eval(__code__, {'x': x, '__builtins__': __builtins__}) for x in __input__]"
+            ).unwrap();
             match py.eval(&code, Some(&locals), None) {
                 Ok(_) => {
                     let result_list = locals.get_item("__result__").ok().flatten();
@@ -101,7 +103,8 @@ pub unsafe extern "C" fn py_map(
                 }
                 Err(e) => Err(format!("Python error: {}", e)),
             }
-        })
+            })
+        }
     };
 
     match result {

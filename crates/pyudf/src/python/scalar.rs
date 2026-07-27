@@ -6,7 +6,7 @@
 //!
 //! Each row's value is passed to the Python expression as variable `x`.
 
-use super::bridge::{ensure_initialized, eval_py_expr};
+use super::bridge::{ensure_python, eval_py_expr};
 use libduckdb_sys as ffi;
 use quack_rs::vector::{VectorReader, VectorWriter};
 
@@ -39,8 +39,14 @@ pub unsafe extern "C" fn py_eval(
         return;
     };
 
-    // Ensure Python is initialized
-    let _ = ensure_initialized();
+    // Ensure Python is initialized — if init fails, report error to all rows
+    if let Err(e) = ensure_python() {
+        let mut writer = unsafe { VectorWriter::new(output) };
+        for row in 0..row_count {
+            unsafe { writer.write_varchar(row, &format!("Python init error: {}", e)) };
+        }
+        return;
+    }
 
     // Column 1: input values
     let val_reader = unsafe { VectorReader::new(input, 1) };

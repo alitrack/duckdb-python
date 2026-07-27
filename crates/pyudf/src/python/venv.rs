@@ -3,7 +3,6 @@
 //! Provides `py_activate_venv(path)` to activate a Python venv by adding
 //! its site-packages to sys.path. Also checks PYUD_VENV env var at load.
 
-use std::ffi::CString;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
@@ -28,17 +27,15 @@ pub fn activate_venv(path: &str) -> Result<(), ExtensionError> {
         let alt = format!("{}/lib/python3.12/site-packages", path);
 
         for sp in &[site_pkg.as_str(), alt.as_str()] {
-            let code = format!("__import__('os').path.isdir('{}')", sp);
-            match py.eval(&CString::new(code.as_bytes()).unwrap(), None, None) {
-                Ok(r) if r.extract::<bool>().unwrap_or(false) => {
-                    sys_path.call_method1("insert", (0, sp)).map_err(|e| {
-                        ExtensionError::new(format!("Failed to insert path: {}", e))
-                    })?;
-                    // Store path
-                    *VENV_PATH.lock().unwrap() = Some(path.to_string());
-                    return Ok(());
-                }
-                _ => continue,
+            // Use Rust filesystem check instead of Python eval — eliminates both
+            // the code injection vector and the GIL overhead of a Python call.
+            if std::path::Path::new(sp).is_dir() {
+                sys_path.call_method1("insert", (0, sp)).map_err(|e| {
+                    ExtensionError::new(format!("Failed to insert path: {}", e))
+                })?;
+                // Store path
+                *VENV_PATH.lock().unwrap() = Some(path.to_string());
+                return Ok(());
             }
         }
         Err(ExtensionError::new(format!(

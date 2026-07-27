@@ -40,8 +40,7 @@ pub fn lookup(name: &str) -> Option<String> {
         .map(|(expr, _)| expr.clone())
 }
 
-/// List all registered function names (for testing).
-#[allow(dead_code)]
+/// List all registered function names.
 pub fn list_names() -> Vec<String> {
     REGISTRY.lock().unwrap().keys().cloned().collect()
 }
@@ -160,7 +159,7 @@ pub unsafe extern "C" fn py_register(
 
     // Dynamically register a DuckDB scalar function with the user's name.
     // This makes `SELECT double('5')` work without `py_call`.
-    let conn_ptr = crate::CON.load(Ordering::Relaxed);
+    let conn_ptr = crate::CON.load(Ordering::Acquire);
     if !conn_ptr.is_null() {
         let con = unsafe { (*conn_ptr).0 };
         let name_c = CString::new(&name[..]).unwrap();
@@ -269,4 +268,23 @@ fn fill_null(output: libduckdb_sys::duckdb_vector, count: usize) {
             writer.set_null(row);
         }
     }
+}
+
+/// `py_list_functions() → VARCHAR`
+///
+/// Returns a comma-separated list of all registered Python function names.
+///
+/// ```sql
+/// SELECT py_list_functions();  -- 'double_it,my_upper,...'
+/// ```
+#[no_mangle]
+pub unsafe extern "C" fn py_list_functions(
+    _info: libduckdb_sys::duckdb_function_info,
+    _input: libduckdb_sys::duckdb_data_chunk,
+    output: libduckdb_sys::duckdb_vector,
+) {
+    let names = list_names();
+    let result = names.join(",");
+    let mut writer = unsafe { VectorWriter::new(output) };
+    unsafe { writer.write_varchar(0, &result) };
 }

@@ -6,7 +6,6 @@ pub mod loader;
 pub mod map;
 pub mod registry;
 pub mod scalar;
-pub mod subinterpreter;
 pub mod table;
 pub mod venv;
 

@@ -8,14 +8,10 @@ use quack_rs::error::ExtensionError;
 use quack_rs::table::{BindInfo, FfiBindData, FfiInitData};
 use quack_rs::types::TypeId;
 
-use super::bridge::ensure_initialized;
-
-fn ensure_python() {
-    let _ = ensure_initialized();
-}
+use super::bridge::ensure_python;
 
 fn pe(e: PyErr) -> String {
-    ensure_python();
+    let _ = ensure_python(); // guard
     Python::with_gil(|py| {
         e.traceback(py)
             .and_then(|t| t.format().ok())
@@ -27,6 +23,14 @@ fn x(s: impl Into<String>) -> ExtensionError {
     ExtensionError::new(s.into())
 }
 
+/// Validate that a string is a valid Python identifier (module/function name).
+fn is_valid_ident(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+        && s.chars().next().map_or(false, |c| c.is_alphabetic() || c == '_')
+}
+
 #[derive(Clone)]
 pub struct PyScanState {
     rows: Vec<Vec<String>>,
@@ -36,7 +40,7 @@ pub struct PyScanState {
 
 #[no_mangle]
 pub unsafe extern "C" fn py_scan_bind(info: ffi::duckdb_bind_info) {
-    ensure_python();
+    let _ = ensure_python(); // guard
     let bind = unsafe { BindInfo::new(info) };
     if bind.parameter_count() < 2 {
         bind.set_error("py_scan requires module and func");
@@ -95,13 +99,25 @@ pub unsafe extern "C" fn py_scan_scan(
 }
 
 fn fetch_py_table(module: &str, func: &str) -> Result<PyScanState, ExtensionError> {
-    ensure_python();
+    let _ = ensure_python(); // guard
+    // Validate module/function names to prevent code injection via format!
+    if !is_valid_ident(module) || !is_valid_ident(func) {
+        return Err(x(format!(
+            "Invalid module or function name: '{}'.'{}'",
+            module, func
+        )));
+    }
     Python::with_gil(|py| {
-        let code = format!("__import__('{}').{}", module, func);
-        let py_fn = py
-            .eval(&CString::new(code.as_bytes()).unwrap(), None, None)
+        // Use Python variables instead of string interpolation to prevent injection
+        let locals = pyo3::types::PyDict::new(py);
+        locals.set_item("__m__", module).map_err(|e| x(pe(e)))?;
+        locals.set_item("__f__", func).map_err(|e| x(pe(e)))?;
+        let code = CString::new(
+            "getattr(__import__(__m__), __f__)()"
+        ).map_err(|e| x(format!("Invalid code: {}", e)))?;
+        let result = py
+            .eval(&code, Some(&locals), None)
             .map_err(|e| x(format!("import {}.{}: {}", module, func, pe(e))))?;
-        let result = py_fn.call0().map_err(|e| x(format!("call: {}", pe(e))))?;
         let rows: Vec<Vec<String>> = if let Ok(l) = result.downcast::<pyo3::types::PyList>() {
             l.iter().map(|v| obj_to_row(py, &v)).collect::<Result<_, _>>()?
         } else if let Ok(t) = result.downcast::<pyo3::types::PyTuple>() {
