@@ -23,20 +23,19 @@ include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
 
 # Override: inject --features embed when LINUX_CI_IN_DOCKER=1.
-# Expected warning: "overriding recipe for target" — we intentionally
+# Expected harmless warning: "overriding recipe for target" — we intentionally
 # extend the base rust.Makefile targets to support runtime dlopen builds.
 CARGO_EMBED_FLAG =
 ifeq ($(LINUX_CI_IN_DOCKER),1)
 	CARGO_EMBED_FLAG = --features embed
 endif
 
-# Suppress override warnings — these are intentional extensions
-override build_extension_library_debug: check_configure
+build_extension_library_debug: check_configure
 	DUCKDB_EXTENSION_NAME=$(EXTENSION_NAME) DUCKDB_EXTENSION_MIN_DUCKDB_VERSION=$(TARGET_DUCKDB_VERSION) cargo build $(CARGO_OVERRIDE_DUCKDB_RS_FLAG) $(CARGO_EMBED_FLAG) $(TARGET_INFO)
 	$(PYTHON_VENV_BIN) -c "from pathlib import Path;Path('$(EXTENSION_BUILD_PATH)/debug/extension/$(EXTENSION_NAME)').mkdir(parents=True, exist_ok=True)"
 	$(PYTHON_VENV_BIN) -c "import shutil;shutil.copyfile('$(TARGET_PATH)/debug$(IS_EXAMPLE)/$(RUST_LIBNAME)', '$(EXTENSION_BUILD_PATH)/debug/$(EXTENSION_LIB_FILENAME)')"
 
-override build_extension_library_release: check_configure
+build_extension_library_release: check_configure
 	DUCKDB_EXTENSION_NAME=$(EXTENSION_NAME) DUCKDB_EXTENSION_MIN_DUCKDB_VERSION=$(TARGET_DUCKDB_VERSION) cargo build $(CARGO_OVERRIDE_DUCKDB_RS_FLAG) --release $(CARGO_EMBED_FLAG) $(TARGET_INFO)
 	$(PYTHON_VENV_BIN) -c "from pathlib import Path;Path('$(EXTENSION_BUILD_PATH)/release/extension/$(EXTENSION_NAME)').mkdir(parents=True, exist_ok=True)"
 	$(PYTHON_VENV_BIN) -c "import shutil;shutil.copyfile('$(TARGET_PATH)/release$(IS_EXAMPLE)/$(RUST_LIBNAME)', '$(EXTENSION_BUILD_PATH)/release/$(EXTENSION_LIB_FILENAME)')"
@@ -58,14 +57,16 @@ ensure_python_dev:
 		fi; \
 	fi
 
-# Override: install duckdb in venv before platform detection runs.
-# base.Makefile's configure target runs platform → configure_helper.py
-# which imports duckdb. We inject pip install between venv and platform.
-override configure: ensure_python_dev
-	$(MAKE) venv
-	$(PYTHON_VENV_BIN) -m ensurepip --upgrade 2>/dev/null; $(PYTHON_VENV_BIN) -m pip install duckdb==$(DUCKDB_TEST_VERSION) --quiet
-	$(MAKE) platform
-	$(MAKE) extension_version
+# Use uv for faster venv creation if available (falls back to python -m venv).
+# Override the base venv target from extension-ci-tools.
+uv_venv: configure/venv
+configure/venv:
+	@if command -v uv >/dev/null 2>&1; then \
+		uv venv configure/venv --python $(PYTHON_BIN); \
+		cd configure && uv pip install --python venv/bin/python3 duckdb==$(DUCKDB_TEST_VERSION); \
+	else \
+		$(PYTHON_BIN) -m venv configure/venv; \
+	fi
 
 debug: ensure_python_dev build_extension_library_debug build_extension_with_metadata_debug
 release: ensure_python_dev build_extension_library_release build_extension_with_metadata_release
