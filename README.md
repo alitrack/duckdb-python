@@ -35,8 +35,8 @@ SELECT py_call('double', '5'); -- '10' (backward-compatible)
 ### Prerequisites
 
 - Rust toolchain
-- Python 3.12 preferred on macOS for PyO3 linking
-- `make`
+- Python 3.12 (with `python3.12-venv` on Linux)
+- `make`, `ninja`
 - Git
 
 Clone with submodules:
