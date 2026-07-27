@@ -1,11 +1,9 @@
-//! pyudf — DuckDB extension for Python User-Defined Functions.
+//! python_ext — DuckDB extension for Python User-Defined Functions.
 //!
 //! Embeds CPython (via PyO3) inside DuckDB's process to enable
 //! Python scalar, aggregate, and table functions from any DuckDB client.
 
 use std::sync::atomic::{AtomicPtr, Ordering};
-
-use libduckdb_sys::{duckdb_connection, duckdb_database};
 use quack_rs::aggregate::AggregateFunctionBuilder;
 #[cfg(feature = "cpython")]
 use quack_rs::config_option::{ConfigOptionBuilder, ConfigOptionScope};
@@ -22,15 +20,13 @@ mod python;
 /// connection is invalidated after the callback returns.
 static DB: AtomicPtr<libduckdb_sys::_duckdb_database> = AtomicPtr::new(std::ptr::null_mut());
 
-/// Open a new DuckDB connection from the cached database handle.
-pub(crate) unsafe fn fresh_connection() -> Option<duckdb_connection> {
-    let db = DB.load(Ordering::Acquire);
-    if db.is_null() { return None; }
-    let mut con: duckdb_connection = std::ptr::null_mut();
-    let rc = libduckdb_sys::duckdb_connect(db, &raw mut con);
-    if rc == libduckdb_sys::DuckDBSuccess { Some(con) } else { None }
-}
-
+/// Long-lived connection opened during extension init.
+/// We open this connection while the DuckDB C API is freshly initialized
+/// (inside the `init_extension` callback), so it stays valid for the lifetime
+/// of the extension. `py_register` uses this instead of calling `duckdb_connect`
+/// at runtime, which crashes due to static-linking conflicts with the host's libduckdb.
+static LONG_LIVED_CON: AtomicPtr<libduckdb_sys::_duckdb_connection> =
+    AtomicPtr::new(std::ptr::null_mut());
 /// Extension entry point — DuckDB calls this symbol at load time.
 #[no_mangle]
 pub unsafe extern "C" fn python_init_c_api(
@@ -159,6 +155,19 @@ unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<()
     // ── Check PYUD_VENV env var on load ──
     #[cfg(feature = "cpython")]
     python::venv::check_env_venv();
+
+    // Open a long-lived connection for dynamic function registration.
+    // This MUST be done inside the init_extension callback while the C API
+    // is freshly initialized. Storing this connection avoids the need to call
+    // duckdb_connect at runtime, which crashes due to static-linking conflicts.
+    let db = DB.load(Ordering::Acquire);
+    if !db.is_null() {
+        let mut con: libduckdb_sys::duckdb_connection = std::ptr::null_mut();
+        let rc = unsafe { libduckdb_sys::duckdb_connect(db, &raw mut con) };
+        if rc == libduckdb_sys::DuckDBSuccess {
+            LONG_LIVED_CON.store(con, Ordering::Release);
+        }
+    }
 
     Ok(())
 }

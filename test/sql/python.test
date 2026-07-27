@@ -1,6 +1,6 @@
-# name: test/sql/pyudf.test
-# description: smoke tests for the pyudf extension
-# group: [pyudf]
+# name: test/sql/python.test
+# description: smoke tests for the python extension
+# group: [python]
 
 # ── Load gating ─────────────────────────────────────────────
 

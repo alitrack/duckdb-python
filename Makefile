@@ -4,7 +4,7 @@ PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 EXTENSION_NAME=python
 
-# pyudf uses quack-rs modules gated behind DuckDB 1.5 APIs (e.g. config options),
+# duckdb-python uses quack-rs modules gated behind DuckDB 1.5 APIs (e.g. config options),
 # so package binaries for a concrete DuckDB 1.5 release.
 USE_UNSTABLE_C_API=1
 TARGET_DUCKDB_VERSION=v1.5.4
@@ -18,6 +18,9 @@ PYTHON_BIN ?= $(PYO3_PYTHON)
 export PYO3_PYTHON
 
 all: configure debug
+
+# ── Configure: venv + platform detection + version file ──
+configure: platform extension_version venv
 
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
@@ -64,18 +67,21 @@ configure/venv:
 	@if command -v uv >/dev/null 2>&1; then \
 		uv venv configure/venv --python $(PYTHON_BIN); \
 		cd configure && uv pip install --python venv/bin/python3 duckdb==$(DUCKDB_TEST_VERSION); \
+		cd configure && uv pip install --python venv/bin/python3 git+https://github.com/duckdb/duckdb-sqllogictest-python@2ac8dbc012ddbd96a57dca37784fd8ee3c0eb021 packaging; \
 	else \
 		$(PYTHON_BIN) -m venv configure/venv; \
+		$(PYTHON_VENV_BIN) -m pip install duckdb==$(DUCKDB_TEST_VERSION); \
+		$(PYTHON_VENV_BIN) -m pip install git+https://github.com/duckdb/duckdb-sqllogictest-python@2ac8dbc012ddbd96a57dca37784fd8ee3c0eb021 packaging; \
 	fi
 
-# Override: our Cargo [lib] name is pyudf (python would clash with system libpython).
+# Override: our Cargo [lib] name is python_ext (python would clash with system libpython).
 # base.Makefile defaults to lib$(EXTENSION_NAME).so = libpython.so — we override here.
-EXTENSION_LIB_FILENAME=libpyudf.so
+EXTENSION_LIB_FILENAME=libpython_ext.so
 ifeq ($(OS),Windows_NT)
-EXTENSION_LIB_FILENAME=pyudf.dll
+EXTENSION_LIB_FILENAME=python_ext.dll
 endif
 ifeq ($(shell uname -s 2>/dev/null),Darwin)
-EXTENSION_LIB_FILENAME=libpyudf.dylib
+EXTENSION_LIB_FILENAME=libpython_ext.dylib
 endif
 
 debug: ensure_python_dev build_extension_library_debug build_extension_with_metadata_debug

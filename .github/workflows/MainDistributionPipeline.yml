@@ -131,7 +131,7 @@ jobs:
           DUCKDB_GIT_VERSION=v1.5.4
           ENABLE_EXTENSION_AUTOINSTALL=1
           ENABLE_EXTENSION_AUTOLOADING=1
-          EXTENSION_NAME=pyudf
+          EXTENSION_NAME=python
           LINUX_CI_IN_DOCKER=1
           GITHUB_ACTIONS=true
           CI=true
