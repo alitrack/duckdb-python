@@ -128,17 +128,16 @@ Or via environment variable before launching DuckDB:
 PYUD_VENV=/path/to/venv duckdb -unsigned -c "LOAD './build/release/extension/python/python.duckdb_extension'; SELECT py_eval('x.upper()', 'hello')"
 ```
 
-## Python selection notes
+## Python 版本兼容
 
-On macOS, Apple-provided `/usr/bin/python3` often does not provide a usable shared-library
-layout for this project. The Makefile prefers `/opt/homebrew/bin/python3.12` when available
-and exports `PYO3_PYTHON` automatically.
+扩展二进制**不绑定特定 Python 版本**。编译时使用任意 Python 3（如 3.13），运行时 `dlopen` 当前环境的 `libpython`。
 
-If your Python 3.12 lives elsewhere, override it explicitly:
-
-```bash
-PYO3_PYTHON=/path/to/python3.12 PYTHON_BIN=/path/to/python3.12 make configure release
-```
+| 编译 | 运行 | 结果 |
+|------|------|:---:|
+| 3.13 | 3.11 | ✅ |
+| 3.13 | 3.12 | ✅ |
+| 3.13 | 3.13 | ✅ |
+| 任意 | 3.14 | ❌ PyO3 0.24 未适配 |
 
 ## Why `make release` instead of plain `cargo build --release`?
 
