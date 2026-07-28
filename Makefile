@@ -7,8 +7,8 @@ EXTENSION_NAME=python_udf
 # duckdb-python uses quack-rs modules gated behind DuckDB 1.5 APIs (e.g. config options),
 # so package binaries for a concrete DuckDB 1.5 release.
 USE_UNSTABLE_C_API=1
-TARGET_DUCKDB_VERSION=v1.5.4
-DUCKDB_TEST_VERSION=1.5.4
+TARGET_DUCKDB_VERSION=v1.5.5
+DUCKDB_TEST_VERSION=1.5.5
 EXTENSION_VERSION=0.1.0
 
 # Prefer a shared-library Python 3.12 on macOS so PyO3 links cleanly.
@@ -19,8 +19,8 @@ export PYO3_PYTHON
 
 all: configure debug
 
-# ── Configure: venv + platform detection + version file ──
-configure: platform extension_version venv
+# ── Configure: venv first (creates configure/ dir), then platform + version ──
+configure: venv platform extension_version
 
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
