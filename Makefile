@@ -79,12 +79,15 @@ configure/venv:
 	fi
 
 # Override: our Cargo [lib] name is python_ext (python would clash with system libpython).
-# base.Makefile defaults to lib$(EXTENSION_NAME).so = libpython.so — we override here.
+# base.Makefile defaults to lib$(EXTENSION_NAME).so = libpython_udf.so — we override here.
+RUST_LIBNAME=libpython_ext.so
 EXTENSION_LIB_FILENAME=libpython_ext.so
 ifeq ($(OS),Windows_NT)
+RUST_LIBNAME=python_ext.dll
 EXTENSION_LIB_FILENAME=python_ext.dll
 endif
 ifeq ($(shell uname -s 2>/dev/null),Darwin)
+RUST_LIBNAME=libpython_ext.dylib
 EXTENSION_LIB_FILENAME=libpython_ext.dylib
 endif
 
