@@ -1,5 +1,3 @@
-# Do not hard-pin PYO3_PYTHON here.
-#
-# Build wrappers (Makefile / CI) should export PYO3_PYTHON explicitly so the
-# selected interpreter matches the host machine. On macOS, a shared-library
-# Python 3.12 such as /opt/homebrew/bin/python3.12 is recommended for PyO3.
+# statically linking the C runtime on windows seems sensible?
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static"]

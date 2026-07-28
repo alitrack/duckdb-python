@@ -6,10 +6,13 @@ EXTENSION_NAME=python_udf
 
 # duckdb-python uses quack-rs modules gated behind DuckDB 1.5 APIs (e.g. config options),
 # so package binaries for a concrete DuckDB 1.5 release.
-USE_UNSTABLE_C_API=1
-TARGET_DUCKDB_VERSION=v1.5.5
-DUCKDB_TEST_VERSION=1.5.5
-EXTENSION_VERSION=0.1.0
+USE_UNSTABLE_C_API=0
+TARGET_DUCKDB_VERSION=v1.2.0
+DUCKDB_TEST_VERSION=1.5.4
+EXTENSION_VERSION=0.2.0
+
+# Use minimal configure in CI (compat with Docker)
+CONFIGURE_CI_STEP=minimal_configure
 
 # Prefer a shared-library Python 3.12 on macOS so PyO3 links cleanly.
 # Override in the environment if your Python lives elsewhere.
