@@ -390,10 +390,10 @@ pub unsafe extern "C" fn py_call(
     let arg_reader = unsafe { VectorReader::new(input, 1) };
     let row_count = name_reader.row_count();
 
-    let (expr, ret_type) = if unsafe { name_reader.is_valid(0) } {
+    let expr = if unsafe { name_reader.is_valid(0) } {
         let name = unsafe { name_reader.read_str(0) };
-        match REGISTRY.lock().unwrap().get(&name as &str) {
-            Some(e) => (e.expr.clone(), e.return_type),
+        match lookup(&name) {
+            Some(e) => e,
             None => {
                 let mut writer = unsafe { VectorWriter::new(output) };
                 for row in 0..row_count {
@@ -412,24 +412,16 @@ pub unsafe extern "C" fn py_call(
         return;
     };
 
+    let mut writer = unsafe { VectorWriter::new(output) };
     for row in 0..row_count {
         if unsafe { !arg_reader.is_valid(row) } {
-            unsafe { set_null(output, row) };
+            unsafe { writer.set_null(row); }
             continue;
         }
         let arg = unsafe { arg_reader.read_str(row) };
         match eval_py_expr(&expr, &arg) {
-            Ok(result) => {
-                if let Some(tid) = ret_type {
-                    if unsafe { !write_typed(output, row, &result, tid) } {
-                        unsafe { set_null(output, row) };
-                    }
-                } else {
-                    let mut writer = unsafe { VectorWriter::new(output) };
-                    unsafe { writer.write_varchar(row, &result) };
-                }
-            }
-            Err(_) => unsafe { set_null(output, row) },
+            Ok(result) => unsafe { writer.write_varchar(row, &result) },
+            Err(_) => unsafe { writer.set_null(row) },
         }
     }
 }

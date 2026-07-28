@@ -8,7 +8,7 @@ result = con.execute("SELECT py_eval('x.upper()', 'hello')").fetchall()
 print(result)
 assert result[0][0] == "HELLO", f"Expected HELLO, got {result}"
 
-result = con.execute("SELECT py_register('double_it', 'str(int(x)*2)', 1)").fetchall()
+result = con.execute("SELECT py_register('double_it', 'str(int(x)*2)', 1, 'BIGINT')").fetchall()
 print(result)
 
 result = con.execute("SELECT py_call('double_it', '21')").fetchall()
