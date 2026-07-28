@@ -36,13 +36,39 @@ SELECT py_eval('x.upper()', NULL);
 ----
 NULL
 
-# ── py_register + direct call ────────────────────────────────
+# ── py_register + direct call (typed return) ──────────────────
 
-# FIXME: py_register crashes due to pre-existing bug
-# query T
-# SELECT py_register('double_it', 'str(int(x)*2)', 1);
-# ----
-# OK
+query T
+SELECT py_register('double_it', 'str(int(x)*2)', 1, NULL);
+----
+OK
+
+query T
+SELECT double_it('21');
+----
+42
+
+# typed: BIGINT
+query T
+SELECT py_register('dbl', 'int(x)*2', 1, 'BIGINT');
+----
+OK
+
+query I
+SELECT dbl('21');
+----
+42
+
+# typed: DOUBLE
+query T
+SELECT py_register('half', 'round(float(x)/2,2)', 1, 'DOUBLE');
+----
+OK
+
+query R
+SELECT half('99');
+----
+49.5
 
 # ── py_map: batch scalar ─────────────────────────────────────
 

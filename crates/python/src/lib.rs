@@ -69,13 +69,14 @@ unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<()
             .register(con)?;
     }
 
-    // ── Scalar: py_register(name VARCHAR, expr VARCHAR, nargs INTEGER) → VARCHAR ──
+    // ── Scalar: py_register(name VARCHAR, expr VARCHAR, nargs INTEGER [, rettype VARCHAR]) → VARCHAR ──
     #[cfg(feature = "cpython")]
     unsafe {
         ScalarFunctionBuilder::new("py_register")
             .param(TypeId::Varchar)
             .param(TypeId::Varchar)
             .param(TypeId::Integer)
+            .param(TypeId::Varchar)  // optional return type hint
             .returns(TypeId::Varchar)
             .function(python::registry::py_register)
             .register(con)?;
