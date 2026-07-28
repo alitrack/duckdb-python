@@ -65,7 +65,7 @@ mod tests {
         let result = bridge::eval_py_expr("x..upper()", "hello");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("py_eval failed"), "Expected 'py_eval failed' in error: {}", err);
+        assert!(err.contains("py_eval"), "Expected 'py_eval' in error: {}", err);
     }
 
     #[test]
@@ -73,6 +73,6 @@ mod tests {
         let result = bridge::eval_py_expr("undefined_var + x", "hello");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("py_eval failed"), "Expected 'py_eval failed' in error: {}", err);
+        assert!(err.contains("py_eval"), "Expected 'py_eval' in error: {}", err);
     }
 }

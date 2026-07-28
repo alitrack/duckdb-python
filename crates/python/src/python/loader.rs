@@ -1,6 +1,6 @@
 //! Runtime dynamic loading of libpython.
 //!
-//! Because pyudf is built with `pyo3/extension-module` (which does NOT link
+//! Because the python extension is built with `pyo3/extension-module` (which does NOT link
 //! to libpython at build time), the Python C API symbols are left unresolved
 //! in the resulting shared library.  At runtime, before PyO3 is initialized,
 //! we `dlopen` the appropriate `libpython3.x.so/dylib/dll` with `RTLD_GLOBAL`
@@ -11,19 +11,23 @@
 //!   2. Auto-detect via `PYO3_PYTHON` / `python3` on `$PATH`
 //!   3. Common system library names
 
+#[cfg(feature = "embed")]
 use std::ffi::CString;
+#[cfg(feature = "embed")]
 use std::os::raw::c_int;
+#[cfg(feature = "embed")]
 use std::sync::Mutex;
 
+#[cfg(feature = "embed")]
 use once_cell::sync::Lazy;
 
 // dlopen flags: RTLD_LAZY | RTLD_GLOBAL
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), feature = "embed"))]
 const RTLD_LAZY: c_int = 1;
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), feature = "embed"))]
 const RTLD_GLOBAL: c_int = 0x100;
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), feature = "embed"))]
 extern "C" {
     fn dlopen(filename: *const std::os::raw::c_char, flag: c_int) -> *mut std::ffi::c_void;
     fn dlerror() -> *mut std::os::raw::c_char;

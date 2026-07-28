@@ -179,8 +179,8 @@ pub unsafe extern "C" fn py_agg_update(
             let dict = unsafe {
                 if let Some(d) = take_dict(py, p) {
                     let raw = d.as_ptr() as *mut std::ffi::c_void;
-                    unsafe { pyo3::ffi::Py_INCREF(raw as *mut pyo3::ffi::PyObject); }
-                    unsafe { write_dict_ptr(p, raw); }
+                    pyo3::ffi::Py_INCREF(raw as *mut pyo3::ffi::PyObject);
+                    write_dict_ptr(p, raw);
                     d
                 } else {
                     init_dict(py, p, &c_json)?

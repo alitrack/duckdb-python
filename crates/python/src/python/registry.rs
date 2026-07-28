@@ -183,29 +183,22 @@ pub unsafe extern "C" fn py_register(
         return;
     }
 
-    // 🔑 Try fresh connection from database handle
-    let db = crate::DB.load(Ordering::Acquire);
-    if db.is_null() {
+    // 🔑 Use the long-lived connection opened during init.
+    // duckdb_connect at runtime crashes due to static-linking conflicts
+    // between our libduckdb and the host's. The init-time connection is valid.
+    let con = crate::LONG_LIVED_CON.load(Ordering::Acquire);
+    if con.is_null() {
         let mut writer = unsafe { VectorWriter::new(output) };
-        for row in 0..row_count { unsafe { writer.write_varchar(row, "NODB"); } }
+        for row in 0..row_count { unsafe { writer.write_varchar(row, "NOCON"); } }
         return;
     }
-    let mut con: libduckdb_sys::duckdb_connection = std::ptr::null_mut();
-    let rc = unsafe { libduckdb_sys::duckdb_connect(db, &raw mut con) };
-    if rc != libduckdb_sys::DuckDBSuccess {
-        let mut writer = unsafe { VectorWriter::new(output) };
-        let msg = format!("CONNECT_ERR {}", rc as i32);
-        for row in 0..row_count { unsafe { writer.write_varchar(row, &msg); } }
-        return;
-    }
-    // Register on fresh connection
+    // Register on the long-lived connection (not disconnected)
     let builder = match ScalarFunctionBuilder::try_new(&name) {
         Ok(b) => b,
         Err(e) => {
             let msg = format!("BADNAME: {}", e);
             let mut writer = unsafe { VectorWriter::new(output) };
             for row in 0..row_count { unsafe { writer.write_varchar(row, &msg); } }
-            libduckdb_sys::duckdb_disconnect(&raw mut con);
             return;
         }
     };
@@ -222,7 +215,6 @@ pub unsafe extern "C" fn py_register(
     if result.is_err() {
         drop(unsafe { CString::from_raw(name_ptr as *mut c_char) });
     }
-    libduckdb_sys::duckdb_disconnect(&raw mut con);
 
     let mut writer = unsafe { VectorWriter::new(output) };
     for row in 0..row_count {

@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/alitrack/duckdb-python"
 
 [lib]
-name = "pyudf"
+name = "python_ext"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
