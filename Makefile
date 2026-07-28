@@ -64,6 +64,7 @@ ensure_python_dev:
 # Override the base venv target from extension-ci-tools.
 uv_venv: configure/venv
 configure/venv:
+	mkdir -p configure
 	@if command -v uv >/dev/null 2>&1; then \
 		uv venv configure/venv --python $(PYTHON_BIN); \
 		cd configure && uv pip install --python venv/bin/python3 duckdb==$(DUCKDB_TEST_VERSION); \
