@@ -99,7 +99,7 @@ unit-test:
 	cargo test --lib
 
 smoke-test: release
-	$(PYTHON_VENV_BIN) -c "import duckdb; con = duckdb.connect(config={'allow_unsigned_extensions': 'true'}); con.execute(\"LOAD 'build/release/extension/python_udf/python_udf.duckdb_extension'\"); print(con.execute(\"SELECT py_eval('x.upper()', 'hello')\").fetchall()); print(con.execute(\"SELECT py_register('double_it', 'str(int(x)*2)', 1)\").fetchall()); print(con.execute(\"SELECT py_call('double_it', '21')\").fetchall())\"
+	$(PYTHON_VENV_BIN) scripts/smoke_test.py
 
 clean: clean_build clean_rust
 clean_all: clean_configure clean
