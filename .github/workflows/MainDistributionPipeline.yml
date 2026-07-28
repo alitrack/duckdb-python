@@ -87,7 +87,6 @@ jobs:
       - name: Runtime smoke test
         run: make smoke-test
 
-# ── Docker build (same as distribution pipeline, without artifact upload) ──
   linux-docker-embed:
     name: Linux Docker embed build
     runs-on: ubuntu-24.04
@@ -103,14 +102,11 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-
-      - name: Checkout extension-ci-tools
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: duckdb/extension-ci-tools
           ref: v1.5-variegata
           path: extension-ci-tools
-
       - name: Build Docker image
         run: |
           docker build \
@@ -119,7 +115,6 @@ jobs:
             --build-arg 'extra_toolchains=;rust;python3;' \
             -t duckdb/linux_amd64 \
             ./extension-ci-tools/docker/linux_amd64
-
       - name: Create env file
         run: |
           cat <<-'EOF' > docker_env.txt
@@ -131,35 +126,28 @@ jobs:
           DUCKDB_GIT_VERSION=v1.5.4
           ENABLE_EXTENSION_AUTOINSTALL=1
           ENABLE_EXTENSION_AUTOLOADING=1
-          EXTENSION_NAME=python
+          EXTENSION_NAME=python_udf
           LINUX_CI_IN_DOCKER=1
           GITHUB_ACTIONS=true
           CI=true
           CCACHE_MAXSIZE=1G
           CCACHE_NOCOMPRESS=1
           EOF
-
       - name: Run configure (outside Docker)
         env:
           DUCKDB_GIT_VERSION: v1.5.4
           LINUX_CI_IN_DOCKER: 0
         run: make configure_ci
-
       - name: Run configure (inside Docker)
-        run: |
-          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir duckdb/linux_amd64 make configure_ci
-
+        run: docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir duckdb/linux_amd64 make configure_ci
       - name: Build extension (inside Docker)
-        run: |
-          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir duckdb/linux_amd64 make release
-
+        run: docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir duckdb/linux_amd64 make release
       - name: Verify binary exists
         run: |
-          ls -la ./build/release/python.duckdb_extension
-          file ./build/release/python.duckdb_extension
+          ls -la ./build/release/python_udf.duckdb_extension
+          file ./build/release/python_udf.duckdb_extension
           echo "=== Linux Docker embed build SUCCESS ==="
 
-# ── Formal distribution (artifact upload, master push only) ──────────────────
   duckdb-stable-build:
     name: Distribution
     needs: [linux-docker-embed, macos-arm64-smoke]
@@ -168,7 +156,7 @@ jobs:
     with:
       duckdb_version: v1.5.4
       ci_tools_version: v1.5-variegata
-      extension_name: python
+      extension_name: python_udf
       extra_toolchains: rust;python3
       exclude_archs: 'linux_arm64;wasm_mvp;wasm_eh;wasm_threads;windows_amd64'
       skip_tests: true
