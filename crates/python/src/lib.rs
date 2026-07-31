@@ -153,6 +153,18 @@ unsafe fn register_functions(con: libduckdb_sys::duckdb_connection) -> Result<()
             .register(con)?;
     }
 
+    // ── Table: py_script(code VARCHAR) → TABLE(...) ──
+    // Executes Python code; rows come from main() / result. Maps KNIME "Python Script" nodes.
+    #[cfg(feature = "cpython")]
+    unsafe {
+        TableFunctionBuilder::new("py_script")
+            .param(TypeId::Varchar)
+            .bind(python::table::py_script_bind)
+            .init(python::table::py_script_init)
+            .scan(python::table::py_script_scan)
+            .register(con)?;
+    }
+
     // ── Check PYUD_VENV env var on load ──
     #[cfg(feature = "cpython")]
     python::venv::check_env_venv();

@@ -268,6 +268,93 @@ fn fetch_py_table(module: &str, func: &str) -> Result<PyScanState, ExtensionErro
     })
 }
 
+// ── py_script(code VARCHAR) → TABLE(...) ──
+// Executes arbitrary Python code, then returns rows from a `main()` function
+// (preferred) or a `result` variable. Direct mapping target for KNIME
+// "Python Script" nodes and arbitrary data-science scripts.
+
+#[no_mangle]
+pub unsafe extern "C" fn py_script_bind(info: ffi::duckdb_bind_info) {
+    let _ = ensure_python();
+    let bind = unsafe { BindInfo::new(info) };
+    if bind.parameter_count() < 1 {
+        bind.set_error("py_script requires a code string");
+        return;
+    }
+    let code = unsafe { bind.get_parameter_value(0) }.as_str_or("");
+    match fetch_py_script(&code) {
+        Ok(s) => {
+            for i in 0..s.col_count {
+                let tid = s.col_types.get(i).copied().unwrap_or(TypeId::Varchar);
+                bind.add_result_column(&format!("col{}", i), tid);
+            }
+            unsafe { FfiBindData::set(info, s) };
+        }
+        Err(e) => bind.set_error(&format!("py_script: {}", e)),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn py_script_init(info: ffi::duckdb_init_info) {
+    py_scan_init(info)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn py_script_scan(
+    info: ffi::duckdb_function_info,
+    output: ffi::duckdb_data_chunk,
+) {
+    py_scan_scan(info, output)
+}
+
+/// Execute `code`, then collect rows from a `main()` function (preferred) or a
+/// `result` variable. Rows: list/tuple/iterable of rows (row = list/tuple/dict/str).
+fn fetch_py_script(code: &str) -> Result<PyScanState, ExtensionError> {
+    let _ = ensure_python();
+    Python::with_gil(|py| {
+        let locals = pyo3::types::PyDict::new(py);
+        let code_c = CString::new(code).map_err(|e| x(format!("Invalid code: {}", e)))?;
+        py.run(&code_c, Some(&locals), None)
+            .map_err(|e| x(format!("exec: {}", pe(e))))?;
+
+        let result = if locals.contains("main").unwrap_or(false) {
+            let main = locals
+                .get_item("main")
+                .map_err(|e| x(pe(e)))?
+                .ok_or_else(|| x("main disappeared after check"))?;
+            main.call0().map_err(|e| x(format!("main(): {}", pe(e))))?
+        } else if let Some(r) = locals.get_item("result").map_err(|e| x(pe(e)))? {
+            r
+        } else {
+            return Err(x("py_script: code must define main() or a result variable"));
+        };
+
+        let rows: Vec<Vec<String>> = if let Ok(l) = result.downcast::<pyo3::types::PyList>() {
+            l.iter().map(|v| obj_to_row(py, &v)).collect::<Result<_, _>>()?
+        } else if let Ok(t) = result.downcast::<pyo3::types::PyTuple>() {
+            t.iter().map(|v| obj_to_row(py, &v)).collect::<Result<_, _>>()?
+        } else {
+            let iter = result.call_method0("__iter__").map_err(|e| x(pe(e)))?;
+            let l = py
+                .eval(&CString::new(b"list(iter)").unwrap(), None, None)
+                .map_err(|e| x(pe(e)))?;
+            l.downcast::<pyo3::types::PyList>()
+                .map_err(|e| x(pe(e.into())))?
+                .iter()
+                .map(|v| obj_to_row(py, &v))
+                .collect::<Result<_, _>>()?
+        };
+        let cc = if rows.is_empty() { 1 } else { rows[0].len().max(1) };
+        let col_types = infer_column_types(&rows, cc);
+        Ok(PyScanState {
+            rows,
+            col_count: cc,
+            col_types,
+            pos: 0,
+        })
+    })
+}
+
 fn obj_to_row(py: Python<'_>, o: &Bound<'_, PyAny>) -> Result<Vec<String>, ExtensionError> {
     if let Ok(l) = o.downcast::<pyo3::types::PyList>() {
         return l.iter().map(|v| obj_to_str(py, &v)).collect();
