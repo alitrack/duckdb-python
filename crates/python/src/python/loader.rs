@@ -6,10 +6,19 @@
 //! we `dlopen` the appropriate `libpython3.x.so/dylib/dll` with `RTLD_GLOBAL`
 //! so that those symbols become resolvable.
 //!
-//! The library to load is determined (in priority order):
-//!   1. `PYUD_PYTHON_LIB` env var – explicit path to the shared library
-//!   2. Auto-detect via `PYO3_PYTHON` / `python3` on `$PATH`
-//!   3. Common system library names
+//! The library to load is determined at extension LOAD time, in priority order:
+//!   1. `PYUD_VENV` env var → ask that venv's own interpreter where its libpython
+//!      lives (version always matches — dynamic per-environment binding)
+//!   2. `PYUD_PYTHON_LIB` env var – explicit path to the shared library
+//!   3. Auto-detect via `PYO3_PYTHON` / `python3` on `$PATH`
+//!   4. Common system library names
+//!
+//! NOTE: DuckDB dlopens extensions with RTLD_NOW, so every symbol (incl. PyO3's
+//! `_Py_DecRef`/`_Py_IncRef`) must be resolvable the moment the extension loads —
+//! libpython therefore has to be in the global symbol table BEFORE the extension
+//! is dlopen'd. That's why binding happens at LOAD time (via `PYUD_VENV`), not on
+//! first `py_activate_venv` call. `py_activate_venv` then verifies the version and
+//! switches site-packages.
 
 #[cfg(feature = "embed")]
 use std::ffi::CString;
@@ -45,6 +54,9 @@ static LOAD_STATUS: Lazy<Mutex<Result<(), String>>> =
 /// Returns `Ok(())` if the library was loaded successfully or was already
 /// loaded; returns `Err` with a descriptive message on failure.
 ///
+/// Returns `Ok(())` if the library was loaded successfully or was already
+/// loaded; returns `Err` with a descriptive message on failure.
+///
 /// When NOT building with the `embed` feature, libpython is linked at
 /// build time and this function is a no-op (returns Ok immediately).
 pub fn ensure_libpython_loaded() -> Result<(), String> {
@@ -60,8 +72,117 @@ pub fn ensure_libpython_loaded() -> Result<(), String> {
     }
 }
 
+/// Ensure libpython is loaded, resolving the target interpreter from a venv.
+///
+/// Called by `py_activate_venv(path)`: libpython is normally already loaded at
+/// extension LOAD time (RTLD_NOW constraint) — this only loads it if that failed
+/// (e.g. no default Python found). The venv is used as the resolution hint.
+/// The extension itself is version-agnostic thanks to `abi3`.
+#[cfg(feature = "embed")]
+pub fn ensure_libpython_for_venv(venv: &str) -> Result<(), String> {
+    let mut guard = LOAD_STATUS.lock().unwrap();
+    let status = guard.clone();
+    if status.is_ok() {
+        return status;
+    }
+    let result = load_libpython_for_venv(venv);
+    *guard = result.clone();
+    result
+}
+
+#[cfg(feature = "embed")]
+fn load_libpython_for_venv(venv: &str) -> Result<(), String> {
+    match resolve_libpython_from_venv(venv) {
+        Some(path) => dlopen_path(&path),
+        None => load_libpython_internal(),
+    }
+}
+
+/// Ask the venv's own interpreter where its libpython lives — the version
+/// always matches the venv. Falls back to pyvenv.cfg / venv/lib scanning.
+#[cfg(feature = "embed")]
+fn resolve_libpython_from_venv(venv: &str) -> Option<String> {
+    use std::path::Path;
+    use std::process::Command;
+
+    let python = format!("{}/bin/python", venv);
+    if !Path::new(&python).exists() {
+        return None;
+    }
+
+    // 1. Ask the venv interpreter itself (most reliable)
+    let script = r#"
+import sysconfig, os
+libdir = sysconfig.get_config_var("LIBDIR")
+ld = sysconfig.get_config_var("LDLIBRARY")
+if libdir and ld:
+    p = os.path.join(libdir, ld)
+    if os.path.exists(p):
+        print(p, end="")
+"#;
+    if let Ok(out) = Command::new(&python).args(["-c", script]).output() {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() && Path::new(&p).exists() {
+                return Some(p);
+            }
+        }
+    }
+
+    // 2. Scan <venv>/lib/ for libpython3.X.so*
+    if let Ok(entries) = std::fs::read_dir(format!("{}/lib", venv)) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if (name.starts_with("libpython") && name.ends_with(".so"))
+                || (name.starts_with("libpython") && name.ends_with(".so.1.0"))
+            {
+                let p = e.path().to_string_lossy().to_string();
+                if Path::new(&p).exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+
+    // 3. pyvenv.cfg [home] → <home>/../lib/libpython3.X.so* (uv puts home under */bin)
+    let cfg = std::fs::read_to_string(format!("{}/pyvenv.cfg", venv)).ok()?;
+    for line in cfg.lines() {
+        let Some(home) = line.strip_prefix("home =") else { continue };
+        let home = Path::new(home.trim());
+        let mut lib_dirs = vec![home.join("lib")];
+        if let Some(parent) = home.parent() {
+            lib_dirs.push(parent.join("lib"));
+        }
+        for dir in &lib_dirs {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for e in entries.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.starts_with("libpython") {
+                        let p = e.path().to_string_lossy().to_string();
+                        if Path::new(&p).exists() {
+                            return Some(p);
+                        }
+                    }
+                }
+            }
+        }
+        break;
+    }
+
+    None
+}
+
 #[cfg(feature = "embed")]
 fn load_libpython_internal() -> Result<(), String> {
+    // 0. venv from env — dynamic per-environment binding (version always matches)
+    if let Ok(venv) = std::env::var("PYUD_VENV") {
+        if !venv.is_empty() {
+            if let Some(path) = resolve_libpython_from_venv(&venv) {
+                return dlopen_path(&path);
+            }
+        }
+    }
+
     // 1. Explicit path from env var
     if let Ok(path) = std::env::var("PYUD_PYTHON_LIB") {
         if !path.is_empty() {

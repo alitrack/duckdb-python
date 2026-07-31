@@ -29,6 +29,7 @@ cpython = ["pyo3"]
 # The `embed` feature enables pyo3's `extension-module` which tells the
 # linker NOT to link to libpython at build time. Symbols are resolved at
 # runtime via dlopen(3) — see `src/python/loader.rs`.
-# This is needed for building in CI environments that don't have libpython.a
-# (e.g. the manylinux Docker containers used by extension-ci-tools).
-embed = ["cpython", "pyo3/extension-module"]
+# `abi3` + `abi3-py311` build against the CPython Stable ABI (min 3.11),
+# so the SAME .duckdb_extension can dlopen libpython3.11/3.12/3.13 at runtime —
+# the interpreter version is bound dynamically per activated venv, not at build time.
+embed = ["cpython", "pyo3/extension-module", "pyo3/abi3", "pyo3/abi3-py311"]
