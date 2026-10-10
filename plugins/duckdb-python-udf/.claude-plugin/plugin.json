@@ -1,0 +1,9 @@
+{
+  "name": "duckdb-python-udf",
+  "version": "0.2.1",
+  "description": "Verified knowledge for the python_udf DuckDB extension: registering named Python functions callable directly by name in SQL, row eval, JSON-state aggregates, table scans from Python, and venv activation.",
+  "author": {
+    "name": "alitrack"
+  },
+  "homepage": "https://github.com/alitrack/duckdb-python"
+}

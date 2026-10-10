@@ -1,0 +1,15 @@
+{
+  "name": "duckdb-python-udf",
+  "owner": {
+    "name": "alitrack",
+    "url": "https://github.com/alitrack"
+  },
+  "plugins": [
+    {
+      "name": "duckdb-python-udf",
+      "description": "Verified SQL knowledge for the python_udf DuckDB extension: CPython embedded in DuckDB — py_register named UDFs callable by name, py_eval/py_map/py_agg/py_scan, venv activation",
+      "source": "./duckdb-python-udf",
+      "category": "data"
+    }
+  ]
+}
